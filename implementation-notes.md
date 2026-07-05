@@ -1,5 +1,31 @@
 # Implementation Notes
 
+> **2026-07-05 pivot:** the project is now **ProToPro** — a startup-grade
+> product, not a portfolio demo. Public site tells problem→product stories;
+> a discreet Operations Console exposes the engineering; HITL happens over
+> email. Major decisions now live in `docs/adr/`. The log below this banner
+> covers the pre-pivot milestones (1–3) plus the ongoing phase log.
+
+## Phase log (post-pivot)
+
+### Phase 0.5 — Brand + web foundation (2026-07-05)
+- First git commits (repo had none): baseline of Milestones 1–3, then the web app.
+- `web/`: Next.js 16 + TS + Tailwind v4 + motion, pnpm.
+- Design system "obsidian & ember" in `web/src/app/globals.css`: ink/mist/maroon
+  token scales, glass + ember-gloss + grain utilities, ticker/ember/rise
+  keyframes, Inter + Instrument Serif + JetBrains Mono via next/font.
+- Landing page: nav with discreet Console pill, CSS-animated hero with live
+  discovery ticker (real Research Agent output), Showcase (3 real validated
+  problems w/ scores), Method (5-stage agent production line), pipeline
+  stats, footer.
+- `/console`: operations console shell — module grid (Orchestration, Runs,
+  Guardrails, Human gate, Tracing, Evaluations) with live/wiring status,
+  no-index metadata.
+- ADRs 0001–0003 (repo structure + frontend reversal, email HITL with signed
+  links, above-fold CSS animation rule).
+- Verified: `pnpm build` clean, `pnpm lint` clean, headless-browser
+  screenshots of hero + console, all sections present in SSR HTML.
+
 ## Goal
 
 P2POps: a LangGraph-orchestrated multi-agent system (Research, Analyst, PM,
