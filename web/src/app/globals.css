@@ -1,0 +1,159 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   ProToPro design tokens — "obsidian & ember"
+   A black stage, one glossy maroon signal color, editorial serif display type.
+--------------------------------------------------------------------------- */
+
+@theme {
+  /* Surfaces — warm blacks with a faint maroon undertone */
+  --color-ink-950: #0b090a;
+  --color-ink-900: #121012;
+  --color-ink-850: #171417;
+  --color-ink-800: #1d191d;
+  --color-ink-700: #2a242a;
+
+  /* Text — warm off-whites */
+  --color-mist-50: #f6f1f2;
+  --color-mist-300: #c9bec2;
+  --color-mist-500: #948a8e;
+  --color-mist-600: #6f6569;
+
+  /* Signal — maroon scale, glossy at the light end */
+  --color-maroon-950: #2a0a12;
+  --color-maroon-900: #43101d;
+  --color-maroon-700: #6f1a2e;
+  --color-maroon-500: #a02240;
+  --color-maroon-400: #c23553;
+  --color-maroon-300: #e06078;
+  --color-maroon-200: #f0a0af;
+
+  --shadow-ember: 0 0 40px -8px rgba(194, 53, 83, 0.45);
+  --shadow-ember-sm: 0 0 24px -6px rgba(194, 53, 83, 0.35);
+}
+
+@theme inline {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-instrument), ui-serif, Georgia, serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
+}
+
+/* ---------------------------------------------------------------------------
+   Base
+--------------------------------------------------------------------------- */
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--color-ink-950);
+  color: var(--color-mist-50);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--color-maroon-700);
+  color: var(--color-mist-50);
+}
+
+/* ---------------------------------------------------------------------------
+   Utilities
+--------------------------------------------------------------------------- */
+
+/* Frosted panel on the black stage */
+@utility glass {
+  background: rgba(246, 241, 242, 0.03);
+  border: 1px solid rgba(246, 241, 242, 0.08);
+  backdrop-filter: blur(14px);
+}
+
+/* Glossy maroon fill — primary actions and accents */
+@utility ember-gloss {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0) 42%),
+    linear-gradient(145deg, #c23553 0%, #8c1e38 55%, #5c1526 100%);
+  border: 1px solid rgba(240, 160, 175, 0.35);
+}
+
+/* Hairline borders that read on black */
+@utility hairline {
+  border-color: rgba(246, 241, 242, 0.08);
+}
+
+/* Fine film grain to kill flat digital black */
+@utility grain {
+  position: relative;
+}
+.grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Discovery-feed ticker */
+@keyframes ticker {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@utility animate-ticker {
+  animation: ticker 48s linear infinite;
+}
+
+.ticker-mask {
+  mask-image: linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%);
+}
+
+/* CSS-only entrance for above-the-fold content — must not wait on hydration */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@utility animate-rise {
+  animation: rise-in 0.7s cubic-bezier(0.21, 0.65, 0.26, 1) both;
+}
+
+/* Slow-breathing ember glow behind the hero */
+@keyframes ember-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: translate(-50%, 0) scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: translate(-50%, 0) scale(1.06);
+  }
+}
+
+@utility animate-ember {
+  animation: ember-breathe 9s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-ticker,
+  .animate-ember,
+  .animate-rise {
+    animation: none;
+  }
+  html {
+    scroll-behavior: auto;
+  }
+}
