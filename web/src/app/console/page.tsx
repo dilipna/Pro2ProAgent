@@ -27,9 +27,9 @@ const MODULES: {
   {
     name: "Runs",
     detail:
-      "Every pipeline execution as a first-class record: per-agent events, tokens, latency, cost.",
+      "Every pipeline execution as a first-class record: per-agent events and timing, queryable live via the API.",
     stack: "SQLite → Postgres",
-    status: "wiring",
+    status: "live",
   },
   {
     name: "Guardrails",
@@ -41,9 +41,9 @@ const MODULES: {
   {
     name: "Human gate",
     detail:
-      "Shortlist review delivered by email; approve or reject resumes the paused graph.",
+      "Shortlist review delivered by email; approve or reject resumes the paused graph automatically.",
     stack: "interrupt() · checkpointer",
-    status: "wiring",
+    status: "live",
   },
   {
     name: "Tracing",
