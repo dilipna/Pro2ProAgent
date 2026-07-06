@@ -25,7 +25,11 @@ rails:
 
 prompts:
   - task: self_check_input
-    max_tokens: 50
+    # Reasoning models (gpt-oss, o1/o3, gemini-2.5, deepseek-r1...) spend
+    # hidden reasoning tokens before any visible output -- a tight cap tuned
+    # for non-reasoning models starves them into an empty response. 300 is
+    # still cheap for a yes/no classification but survives that overhead.
+    max_tokens: 300
     content: |
       Your task is to check if the input below is a legitimate, specific
       AI-related problem or pain point that a person is facing -- suitable

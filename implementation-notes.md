@@ -34,11 +34,60 @@
 - **Tests: 23 passing** — repository, API (hermetic ASGI), scoring/gates,
   and three offline end-to-end venture-graph scenarios through the
   `_structured` seam (happy path w/ refinement, gate rejection, parking).
-- **Live verification status:** API booted; live run reached OpenRouter and
-  failed with 402 — **the OpenRouter account balance is exhausted** (can
-  afford ~890 tokens). Full live pass (run → email → approve → venture)
-  pending a top-up. Error handling verified for real: the failed run shows
-  status=failed + error event through the API.
+- **Live verification status (superseded, see Phase 1.5):** API booted;
+  live run reached OpenRouter and failed with 402 — OpenRouter balance
+  exhausted (~890 tokens affordable). Full live pass pending either a
+  top-up or a different provider.
+
+### Phase 1.5 — Groq provider, LLM-call resilience layer, first full live pass (2026-07-06)
+- **Added Groq as a third LLM provider** (config.py, chat_model.py) since
+  Anthropic direct ($0) and OpenRouter (~890 tokens) were both exhausted.
+  User supplied a Groq key directly in chat — dropped straight into `.env`,
+  not echoed back (standard handling for pasted secrets).
+- **Five real bugs found and fixed via live iteration** (full detail in
+  ADR-0005, `docs/adr/0005-llm-call-resilience-and-groq-model-choice.md`):
+  1. Empty tool-result content (`fetch_article_text` returning `""`,
+     `search_hacker_news` returning `[]`) produced a `ToolMessage` with zero
+     MCP content blocks — Groq rejects this outright. Fixed at the source:
+     both tools now return an explicit placeholder instead of empty output.
+  2. `API_TOKEN=` (blank) in `.env` parsed as `""`, not `None` — silently
+     locked out every API request. Fixed with a `field_validator` that
+     normalizes blank env strings to `None` across every optional secret
+     field (`_BLANKABLE_FIELDS` in config.py), not just this one.
+  3. Two uncoordinated retry layers (OpenAI SDK's own + ours) stacked
+     unpredictable waits. Fixed: `max_retries=0` on every chat model
+     instance; `resilience.with_retry` is now the sole retry authority.
+  4. A 413 "payload too large" reused 429's `rate_limit_exceeded` wording —
+     status code must win over text, or a permanently-oversized request
+     gets retried forever. A 400 `tool_use_failed`/`json_validate_failed`
+     is the opposite case (stochastic model output, resampling helps) and
+     needed its own explicit exception to the "4xx = stop" rule.
+  5. `openai/gpt-oss-20b`'s Groq on-demand tier caps at 8,000 TPM,
+     *org-wide, sliding window* — waiting between runs doesn't help, only
+     shrinking work-per-run or a bigger-headroom model does. Queried this
+     account's actual per-model rate limits and switched to
+     `llama-4-scout-17b-16e-instruct` (30,000 TPM, verified live for both
+     tool-calling and structured output) as the default-tier model.
+- **New module `src/p2pops/resilience.py`** (`with_retry`, 9 direct unit
+  tests): the single retry seam used by `llm.py`, both agents, and every
+  venture agent call.
+- **Research Agent hardened**: `MAX_SEARCH_RESULTS=6`, `MAX_ARTICLE_CHARS=1200`
+  (mcp/server.py), `MAX_RESEARCH_STEPS=16` recursion ceiling, prompt now
+  requires a real, non-null `source_url` traced to an actual search result
+  for every reported idea.
+- **First full live pass, same day, no mocks**: POST /api/v1/runs → Research
+  Agent found 3 real problems → Analyst scored/shortlisted all 3 → email
+  sent (console adapter, real HTML with signed links) → all 3 approved via
+  `/r/{token}/approve` → graph resumed → venture pipeline ran for all 3 →
+  **2 honestly parked** (unresolved critical stress-test issues after 2
+  refinement rounds — the bounded-loop design working as intended, not a
+  failure) → **1 complete**, full `OpportunityDossier` with a coherent
+  product vision ("TrustLayer SDK" — plug-and-play CI/CD trust-evaluation
+  SDK, positioned against named competitors, with a concrete 90-day
+  execution plan and success metrics). Deterministic ranking scores and
+  gate pass/fail history all inspectable in the persisted dossier JSON.
+- **Tests: 37 passing** (was 23 at end of Phase 1).
+- ADR-0005 added.
 
 ### Phase 0.5 — Brand + web foundation (2026-07-05)
 - First git commits (repo had none): baseline of Milestones 1–3, then the web app.
