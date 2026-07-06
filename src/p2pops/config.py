@@ -58,9 +58,32 @@ class Settings(BaseSettings):
 
     # HITL / orchestration
     review_interval_days: int = 10
+    review_token_ttl_hours: int = 72
+
+    # Email delivery for the human gate. With no RESEND_API_KEY set, the
+    # console adapter logs the review email instead of sending it.
+    review_email_to: str | None = None
+    resend_api_key: str | None = None
+    resend_from: str = "ProToPro <onboarding@resend.dev>"
+
+    # Public base URL used to build review action links.
+    app_base_url: str = "http://localhost:8000"
+
+    # Optional bearer token protecting mutating API endpoints. Unset = open
+    # (single-operator local development).
+    api_token: str | None = None
 
     # Storage
-    database_path: str = "data/p2pops.db"
+    data_dir: str = "data"
+    database_path: str = "data/p2pops.db"  # legacy sqlite3 store (pre-Phase 1)
+
+    @property
+    def database_url(self) -> str:
+        return f"sqlite+aiosqlite:///{self.data_dir}/protopro.db"
+
+    @property
+    def checkpoint_db_path(self) -> str:
+        return f"{self.data_dir}/checkpoints.db"
 
 
 @lru_cache

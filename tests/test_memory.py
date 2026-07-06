@@ -3,7 +3,7 @@ from p2pops.config import get_settings
 
 
 def test_find_duplicate_and_remember(tmp_path, monkeypatch):
-    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.db"))
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
     get_settings.cache_clear()
     memory._get_collection.cache_clear()
 

@@ -1,15 +1,42 @@
-"""CLI entrypoint for the full Research -> Analyst pipeline (Milestone 3)."""
+"""CLI entrypoint: run the full pipeline once, recording a real Run.
+
+Prints the event timeline as it lands. If the run pauses at the human
+gate, the process exits cleanly — the checkpointed thread resumes later
+via the review links (served by `p2pops-api`).
+"""
 
 import argparse
 import asyncio
 
 from .config import get_settings
-from .graph import run_pipeline
+from .db import repository as repo
+from .db.engine import init_db
+from .runner import execute_run, shutdown_pipeline
 from .telemetry import configure_telemetry
 
 
+async def _main(topic: str) -> None:
+    await init_db()
+    run = await repo.create_run(topic)
+    print(f"run {run.id} started · topic: {topic}\n")
+
+    await execute_run(run.id, topic)
+
+    for event in await repo.events_after(run.id):
+        duration = f" ({event.duration_ms:.0f} ms)" if event.duration_ms else ""
+        print(f"  [{event.agent}] {event.event_type}: {event.message}{duration}")
+
+    final = await repo.get_run(run.id)
+    print(f"\nrun {run.id} -> {final.status}")
+    if final.status == "awaiting_review":
+        print("Shortlist sent to the human gate - check your email (or the log above")
+        print("for console-adapter links). Approve/reject resumes the run via p2pops-api.")
+
+    await shutdown_pipeline()
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the P2POps Research -> Analyst pipeline once.")
+    parser = argparse.ArgumentParser(description="Run the ProToPro pipeline once.")
     parser.add_argument("topic", nargs="?", default="AI agent tooling", help="Topic to research")
     args = parser.parse_args()
 
@@ -19,24 +46,7 @@ def main() -> None:
         print(f"No API key set for provider '{settings.llm_provider}' - add it to .env.")
         return
 
-    result = asyncio.run(run_pipeline(args.topic))
-    shortlist = result["shortlist"]
-
-    if not shortlist:
-        print("No ideas discovered for this topic.")
-        return
-
-    by_status: dict[str, int] = {}
-    for idea in shortlist:
-        by_status[idea.status] = by_status.get(idea.status, 0) + 1
-    print(f"Processed {len(shortlist)} ideas: {by_status}")
-    print()
-
-    for idea in shortlist:
-        if idea.status == "shortlisted":
-            print(f"[{idea.status.upper()}] score={idea.score} - {idea.title}")
-            print(f"  {idea.reasoning}")
-            print(f"  {idea.source_url}\n")
+    asyncio.run(_main(args.topic))
 
 
 if __name__ == "__main__":

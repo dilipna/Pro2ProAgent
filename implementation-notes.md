@@ -8,6 +8,38 @@
 
 ## Phase log (post-pivot)
 
+### Phase 1 — Run infrastructure, email HITL, venture pipeline (2026-07-06)
+- **DB layer** (`src/p2pops/db/`): async SQLAlchemy 2.0 + aiosqlite. Models:
+  `Run`, `RunEvent` (the AgentOps timeline), `Idea`, `Review` (single-use
+  emailed decision tokens), `Opportunity` (venture dossier). Repository owns
+  all SQL. *Deviation from ADR-0001:* `create_all` instead of Alembic until
+  the schema stabilizes — logged deliberately; pre-1.0, single dev, SQLite.
+- **Email HITL (ADR-0002)**: `notify.py` port + Console/Resend adapters; the
+  graph pauses via `interrupt()` + AsyncSqliteSaver checkpointer
+  (thread_id = run_id, survives restarts). Review links `/r/{token}/{decision}`
+  are single-use, expiring, no-indexed; last decision auto-resumes the graph.
+  Side effects (tokens, email) live in `request_review`, a node *before* the
+  interrupt — on resume LangGraph re-executes the interrupted node from the
+  top, so `human_gate` contains nothing but the interrupt call.
+- **FastAPI service** (`p2pops-api`): POST/GET runs, run detail, SSE event
+  stream, ideas, opportunities, stats, review action pages (on-brand HTML);
+  optional bearer token on mutating endpoints; CORS for the web app.
+- **Venture pipeline (ADR-0004)** (`src/p2pops/venture/`): on approval, each
+  idea runs evidence → 4 parallel analysis agents → deterministic
+  validation gate → architect (4-6 directions + rejected framings, cites
+  curated founder-principle library) → deterministic weighted ranking w/
+  saturation damping → red team (5 lenses) ⇄ refiner bounded loop → product
+  vision → full `OpportunityDossier` persisted. LLMs produce artifacts;
+  code makes decisions. Temperature 0, retries, clamping validators.
+- **Tests: 23 passing** — repository, API (hermetic ASGI), scoring/gates,
+  and three offline end-to-end venture-graph scenarios through the
+  `_structured` seam (happy path w/ refinement, gate rejection, parking).
+- **Live verification status:** API booted; live run reached OpenRouter and
+  failed with 402 — **the OpenRouter account balance is exhausted** (can
+  afford ~890 tokens). Full live pass (run → email → approve → venture)
+  pending a top-up. Error handling verified for real: the failed run shows
+  status=failed + error event through the API.
+
 ### Phase 0.5 — Brand + web foundation (2026-07-05)
 - First git commits (repo had none): baseline of Milestones 1–3, then the web app.
 - `web/`: Next.js 16 + TS + Tailwind v4 + motion, pnpm.
