@@ -21,7 +21,7 @@ DUPLICATE_DISTANCE_THRESHOLD = 0.3
 @lru_cache
 def _get_collection():
     settings = get_settings()
-    chroma_path = Path(settings.database_path).parent / "chroma"
+    chroma_path = Path(settings.data_dir) / "chroma"
     chroma_path.mkdir(parents=True, exist_ok=True)
     client = chromadb.PersistentClient(path=str(chroma_path))
     return client.get_or_create_collection(COLLECTION_NAME, metadata={"hnsw:space": "cosine"})
