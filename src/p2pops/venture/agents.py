@@ -21,6 +21,7 @@ import logfire
 from pydantic import BaseModel
 
 from ..chat_model import get_chat_model
+from ..resilience import with_retry
 from ..tools.hn import search_hn
 from ..tools.web import fetch_article_text
 from .principles import principles_digest
@@ -40,9 +41,6 @@ from .schemas import (
 
 logger = logging.getLogger(__name__)
 
-_RETRIES = 2
-_RETRY_DELAY_S = 2.0
-
 
 async def _structured[T: BaseModel](
     schema: type[T],
@@ -52,19 +50,14 @@ async def _structured[T: BaseModel](
     tier: str = "default",
     max_tokens: int = 2048,
 ) -> T:
-    """One retried, traced, structured LLM call. The test seam."""
-    last_error: Exception | None = None
-    for attempt in range(1, _RETRIES + 1):
-        try:
-            with logfire.span("venture.llm", agent=agent, schema=schema.__name__, attempt=attempt):
-                model = get_chat_model(tier, max_tokens=max_tokens, temperature=0.0)
-                return await model.with_structured_output(schema).ainvoke(prompt)
-        except Exception as exc:
-            last_error = exc
-            logger.warning("%s attempt %d failed: %s", agent, attempt, exc)
-            if attempt < _RETRIES:
-                await asyncio.sleep(_RETRY_DELAY_S * attempt)
-    raise RuntimeError(f"{agent} failed after {_RETRIES} attempts") from last_error
+    """One rate-limit-aware retried, traced, structured LLM call. The test seam."""
+
+    async def call() -> T:
+        with logfire.span("venture.llm", agent=agent, schema=schema.__name__):
+            model = get_chat_model(tier, max_tokens=max_tokens, temperature=0.0)
+            return await model.with_structured_output(schema).ainvoke(prompt)
+
+    return await with_retry(call, agent=agent)
 
 
 # --- Evidence gathering (deterministic, no LLM) ----------------------------------

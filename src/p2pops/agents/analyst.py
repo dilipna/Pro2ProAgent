@@ -11,6 +11,7 @@ from p2pops.chat_model import get_chat_model
 from p2pops.guardrails import is_idea_allowed
 from p2pops.memory import find_duplicate
 from p2pops.models import AnalyzedIdea, DiscoveredIdea, IdeaVerdict
+from p2pops.resilience import with_retry
 
 SHORTLIST_THRESHOLD = 50
 
@@ -28,7 +29,8 @@ async def analyze_idea(idea: DiscoveredIdea) -> AnalyzedIdea:
     combined_text = f"{idea.title}\n{idea.description}"
 
     with logfire.span("agent.analyst", title=idea.title):
-        if not await is_idea_allowed(combined_text):
+        allowed = await with_retry(lambda: is_idea_allowed(combined_text), agent="analyst.guardrail")
+        if not allowed:
             return AnalyzedIdea(
                 **idea.model_dump(), status="rejected", reasoning="Blocked by guardrails"
             )
@@ -41,10 +43,13 @@ async def analyze_idea(idea: DiscoveredIdea) -> AnalyzedIdea:
                 reasoning=f"Near-duplicate of existing idea {duplicate_id}",
             )
 
-        model = get_chat_model("default").with_structured_output(IdeaVerdict)
-        verdict: IdeaVerdict = await model.ainvoke(
-            SCORE_PROMPT_TEMPLATE.format(title=idea.title, description=idea.description)
-        )
+        async def score():
+            model = get_chat_model("default").with_structured_output(IdeaVerdict)
+            return await model.ainvoke(
+                SCORE_PROMPT_TEMPLATE.format(title=idea.title, description=idea.description)
+            )
+
+        verdict: IdeaVerdict = await with_retry(score, agent="analyst.scorer")
 
         status = "shortlisted" if verdict.score >= SHORTLIST_THRESHOLD else "rejected"
         return AnalyzedIdea(

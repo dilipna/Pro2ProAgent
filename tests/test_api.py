@@ -72,3 +72,27 @@ async def test_create_run_requires_token_when_configured(client, monkeypatch):
     finally:
         monkeypatch.delenv("API_TOKEN")
         get_settings.cache_clear()
+
+
+async def test_blank_api_token_in_env_means_open_not_locked(client, monkeypatch):
+    """`API_TOKEN=` (blank) in .env must mean unset, not a literal empty
+    secret -- regression test for the bug where every request was silently
+    denied because "" != None."""
+    monkeypatch.setenv("API_TOKEN", "")
+    from p2pops.config import get_settings
+
+    get_settings.cache_clear()
+
+    # Don't actually launch the live pipeline -- this test is only about
+    # whether the auth dependency lets the request through.
+    async def fake_start_run(topic: str):
+        return await repo.create_run(topic)
+
+    monkeypatch.setattr(runner, "start_run", fake_start_run)
+
+    try:
+        allowed = await client.post("/api/v1/runs", json={"topic": "agent tooling"})
+        assert allowed.status_code == 202
+    finally:
+        monkeypatch.delenv("API_TOKEN")
+        get_settings.cache_clear()
