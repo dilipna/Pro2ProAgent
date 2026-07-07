@@ -1,0 +1,10 @@
+.next
+node_modules
+data
+*.db
+.env*
+!.env.example
+Dockerfile
+README.md
+AGENTS.md
+CLAUDE.md

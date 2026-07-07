@@ -1,5 +1,6 @@
 # Secrets
 .env
+deploy/k8s/secret.yaml
 
 # Python
 __pycache__/

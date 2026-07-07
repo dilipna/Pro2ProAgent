@@ -1,0 +1,150 @@
+# ProToPro prompt regression suite.
+#
+# Runs the REAL Analyst/Validator code paths (via src/p2pops/evals/
+# promptfoo_provider.py's `exec:` provider) against fixed scenarios, so a
+# prompt-wording or schema change that breaks behavior is caught before it
+# reaches a live run — not a copy of the prompt tested in isolation.
+#
+# Costs real LLM tokens against whatever LLM_PROVIDER/keys are in the
+# environment; see docs/adr/0008-cicd-and-promptfoo.md for why CI only runs
+# this on demand, never on every push. Run locally:
+#   uv run promptfoo eval   (or: npx promptfoo@latest eval)
+#
+# Thresholds below are deliberately generous — regression signals against a
+# stochastic system, not correctness proofs. Every scenario's hard assertion
+# is schema-shape (valid JSON, required keys, values in range); the
+# directional assertions on top of that use wide margins specifically to
+# avoid flagging normal LLM-to-LLM score variance as a "regression."
+
+description: "ProToPro Analyst + Venture Validator prompt regression suite"
+
+providers:
+  - id: "exec:uv run p2pops-promptfoo-provider"
+    label: p2pops-live-agents
+
+prompts:
+  # The exec provider ignores this text and dispatches on vars.agent — see
+  # promptfoo_provider.py's module docstring for why. This is a label only.
+  - "[{{agent}}] {{scenario}}"
+
+tests:
+  # --- Analyst: guardrail blocks an obvious off-topic/spam submission -------
+  - vars:
+      agent: analyst
+      scenario: guardrail blocks spam
+      title: "BUY CHEAP FOLLOWERS NOW — 100% guaranteed, click here!!!"
+      description: "Limited time offer, act fast, link in bio, DM for details."
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          if (r.status !== "rejected") throw new Error(`expected rejected, got ${r.status}`);
+          if (!/guardrail/i.test(r.reasoning || "")) throw new Error(`expected guardrail reasoning, got: ${r.reasoning}`);
+          return true;
+
+  # --- Analyst: a specific, painful, buildable problem should pass guardrails
+  # and score meaningfully above the shortlist noise floor. -------------------
+  - vars:
+      agent: analyst
+      scenario: specific painful problem scores meaningfully
+      title: "Kubernetes CrashLoopBackOff gives no actionable diagnostic info"
+      description: >-
+        Every on-call engineer hits this: a pod is CrashLoopBackOff, `kubectl
+        describe` shows generic exit-code noise, and finding the real cause
+        means manually correlating logs across restarts. No existing tool
+        surfaces the actual root cause automatically; teams lose 30-60
+        minutes per incident to this exact workflow.
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          if (typeof r.score !== "number" || r.score < 0 || r.score > 100) {
+            throw new Error(`score out of range: ${r.score}`);
+          }
+          if (r.status === "rejected" && r.reasoning && /guardrail/i.test(r.reasoning)) {
+            throw new Error("a legitimate, specific problem was blocked by guardrails");
+          }
+          // Generous floor: a genuinely specific + painful + buildable problem
+          // should not score as noise-floor weak. Tight enough to catch a
+          // broken/inverted scorer, loose enough to absorb normal LLM variance.
+          if (r.score < 25) throw new Error(`unexpectedly low score for a strong problem: ${r.score}`);
+          return true;
+
+  # --- Analyst: a vague non-problem should not score as a standout. ----------
+  - vars:
+      agent: analyst
+      scenario: vague non-problem does not score as a standout
+      title: "AI is really cool and changing everything"
+      description: "Just a general thought about how impressive AI has become lately."
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          // Two legitimately correct outcomes for genuinely vague input: the
+          // guardrail blocks it before scoring ever runs (score stays null —
+          // observed live, "too vague to act on" is one of its own documented
+          // block criteria), or it reaches scoring and scores low. Either is
+          // fine; a high score or a non-guardrail rejection reasoning is not.
+          if (r.status === "rejected" && r.score === null) {
+            if (!/guardrail/i.test(r.reasoning || "")) {
+              throw new Error(`rejected with null score but not via guardrails: ${r.reasoning}`);
+            }
+            return true;
+          }
+          if (typeof r.score !== "number") throw new Error("score missing/non-numeric");
+          if (r.score > 70) throw new Error(`vague non-problem scored implausibly high: ${r.score}`);
+          return true;
+
+  # --- Venture Validator: strong evidence should ground a confident verdict --
+  - vars:
+      agent: validator
+      scenario: validator grounds verdict in strong evidence
+      title: "CI pipelines silently pass despite flaky test masking"
+      description: "Teams report tests that pass locally but hide real failures under CI retry logic."
+      reasoning: "Shortlisted: high engagement across multiple threads."
+      evidence_items:
+        - source: hackernews
+          title: "Our CI has been lying to us for a year"
+          url: "https://news.ycombinator.com/item?id=1"
+          detail: "412 points · 210 comments · 2026-05-02 — thread full of engineers describing the exact same masking behavior"
+        - source: article
+          title: "The hidden cost of flaky-test retries"
+          url: "https://example.com/flaky-retries"
+          detail: "Postmortem from a mid-size eng org quantifying incidents caused by masked failures reaching production"
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          for (const key of ["is_real", "recurrence", "importance", "evidence_summary", "confidence"]) {
+            if (!(key in r)) throw new Error(`missing field: ${key}`);
+          }
+          if (typeof r.is_real !== "boolean") throw new Error("is_real not boolean");
+          if (r.confidence < 0 || r.confidence > 1) throw new Error(`confidence out of range: ${r.confidence}`);
+          if (!r.evidence_summary || r.evidence_summary.length < 10) {
+            throw new Error("evidence_summary suspiciously empty for a strong-evidence scenario");
+          }
+          return true;
+
+  # --- Venture Validator: no evidence should temper confidence, per the ------
+  # prompt's explicit instruction ("lower confidence accordingly"). ----------
+  - vars:
+      agent: validator
+      scenario: validator lowers confidence with no evidence
+      title: "Speculative problem with zero external evidence"
+      description: "A problem statement invented for this test case, with nothing to corroborate it."
+      reasoning: ""
+      evidence_items: []
+    assert:
+      - type: is-json
+      - type: javascript
+        value: |
+          const r = JSON.parse(output);
+          if (typeof r.confidence !== "number") throw new Error("confidence missing/non-numeric");
+          // Generous ceiling: catches the prompt's "lower confidence" instruction
+          // being silently dropped, without flagging normal variance near it.
+          if (r.confidence > 0.75) throw new Error(`confidence too high with zero evidence: ${r.confidence}`);
+          return true;

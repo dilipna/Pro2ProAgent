@@ -6,14 +6,27 @@ and the notifier never touch the ORM directly.
 """
 
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
 
 from ..config import get_settings
 from ..models import AnalyzedIdea
 from .engine import session
-from .models import Build, Idea, Opportunity, Review, Run, RunEvent, utcnow
+from .models import Build, Idea, LlmCall, Opportunity, Review, Run, RunEvent, utcnow
+
+# --- Health -----------------------------------------------------------------
+
+
+async def ping() -> bool:
+    """Cheap end-to-end database check for health probes. Returns False
+    rather than raising so the health endpoint decides the response shape."""
+    try:
+        async with session() as s:
+            await s.execute(select(1))
+        return True
+    except Exception:
+        return False
 
 
 # --- Runs -------------------------------------------------------------------
@@ -237,7 +250,7 @@ async def create_review(run_id: str, idea_id: str) -> Review:
             id=secrets.token_urlsafe(32),
             run_id=run_id,
             idea_id=idea_id,
-            expires_at=datetime.now(timezone.utc) + timedelta(hours=settings.review_token_ttl_hours),
+            expires_at=datetime.now(UTC) + timedelta(hours=settings.review_token_ttl_hours),
         )
         s.add(review)
         await s.commit()
@@ -252,8 +265,8 @@ async def record_decision(token: str, decision: str) -> Review | None:
             return None
         expires = review.expires_at
         if expires.tzinfo is None:  # SQLite round-trips naive datetimes
-            expires = expires.replace(tzinfo=timezone.utc)
-        if expires < datetime.now(timezone.utc):
+            expires = expires.replace(tzinfo=UTC)
+        if expires < datetime.now(UTC):
             return None
         review.decision = decision
         review.decided_at = utcnow()
@@ -279,3 +292,79 @@ async def decisions_for_run(run_id: str) -> dict[str, str]:
             select(Review).where(Review.run_id == run_id, Review.decision != "pending")
         )
         return {r.idea_id: r.decision for r in rows.scalars()}
+
+
+# --- LLM cost tracking --------------------------------------------------------
+
+
+async def record_llm_call(
+    agent: str, provider: str, model: str, input_tokens: int, output_tokens: int, estimated_cost_usd: float
+) -> None:
+    async with session() as s:
+        s.add(
+            LlmCall(
+                agent=agent,
+                provider=provider,
+                model=model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                estimated_cost_usd=estimated_cost_usd,
+            )
+        )
+        await s.commit()
+
+
+async def cost_summary() -> dict:
+    """Aggregate spend: totals plus a breakdown by agent and by model.
+    Powers the console's LLM cost panel."""
+    async with session() as s:
+        totals = (
+            await s.execute(
+                select(
+                    func.count(),
+                    func.coalesce(func.sum(LlmCall.input_tokens), 0),
+                    func.coalesce(func.sum(LlmCall.output_tokens), 0),
+                    func.coalesce(func.sum(LlmCall.estimated_cost_usd), 0.0),
+                )
+            )
+        ).one()
+        calls, input_tokens, output_tokens, cost = totals
+
+        by_agent_rows = await s.execute(
+            select(
+                LlmCall.agent,
+                func.count(),
+                func.coalesce(func.sum(LlmCall.input_tokens + LlmCall.output_tokens), 0),
+                func.coalesce(func.sum(LlmCall.estimated_cost_usd), 0.0),
+            ).group_by(LlmCall.agent)
+        )
+        by_model_rows = await s.execute(
+            select(
+                LlmCall.provider,
+                LlmCall.model,
+                func.count(),
+                func.coalesce(func.sum(LlmCall.input_tokens + LlmCall.output_tokens), 0),
+                func.coalesce(func.sum(LlmCall.estimated_cost_usd), 0.0),
+            ).group_by(LlmCall.provider, LlmCall.model)
+        )
+
+        return {
+            "calls": int(calls),
+            "input_tokens": int(input_tokens),
+            "output_tokens": int(output_tokens),
+            "estimated_cost_usd": float(cost),
+            "by_agent": [
+                {"agent": agent, "calls": int(c), "tokens": int(t), "estimated_cost_usd": float(cost)}
+                for agent, c, t, cost in by_agent_rows
+            ],
+            "by_model": [
+                {
+                    "provider": provider,
+                    "model": model,
+                    "calls": int(c),
+                    "tokens": int(t),
+                    "estimated_cost_usd": float(cost),
+                }
+                for provider, model, c, t, cost in by_model_rows
+            ],
+        }

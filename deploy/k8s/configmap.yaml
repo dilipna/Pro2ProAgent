@@ -1,0 +1,19 @@
+# Non-secret runtime configuration. Secrets (API keys) live in the
+# `protopro-secrets` Secret — see secret.example.yaml for how to create it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: protopro-config
+  namespace: protopro
+  labels:
+    app.kubernetes.io/part-of: protopro
+data:
+  ENVIRONMENT: production
+  LLM_PROVIDER: groq
+  LANGSMITH_PROJECT: p2pops
+  # Public base URL used inside review-email approve/reject links. Must match
+  # whatever hostname the API ingress exposes.
+  APP_BASE_URL: http://localhost:8000
+  # Absolute data dir — the SQLite database, LangGraph checkpoints, and the
+  # Chroma store all live on the api PVC.
+  DATA_DIR: /app/data

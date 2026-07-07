@@ -16,6 +16,7 @@ import logfire
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
 
+from p2pops import cost_tracking
 from p2pops.chat_model import get_chat_model
 from p2pops.config import get_settings
 from p2pops.models import ResearchReport
@@ -105,6 +106,14 @@ async def run_research(topic: str) -> ResearchReport:
         # search/read) are idempotent, so the only cost is repeated work,
         # never incorrect results.
         result = await with_retry(call, agent="research")
+
+    # Unlike the single structured-output call sites (venture/build,
+    # analyst), a ReAct turn makes one LLM call per tool-calling step -- so
+    # usage is captured per message here rather than once per call, giving
+    # one LlmCall row per actual model turn instead of one aggregated guess.
+    for message in result.get("messages", []):
+        await cost_tracking.record_usage("research", "default", message)
+
     return result["structured_response"]
 
 

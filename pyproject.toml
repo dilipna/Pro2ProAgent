@@ -38,6 +38,7 @@ p2pops-pipeline = "p2pops.pipeline:main"
 p2pops-api = "p2pops.api.app:main"
 p2pops-eval = "p2pops.evals.analyst_eval:main"
 p2pops-build = "p2pops.build_cli:main"
+p2pops-promptfoo-provider = "p2pops.evals.promptfoo_provider:main"
 
 [build-system]
 requires = ["uv_build>=0.11.23,<0.12.0"]
@@ -47,7 +48,25 @@ build-backend = "uv_build"
 dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "ruff>=0.14.0",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 110
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # import sorting
+    "B",   # bugbear (real bug patterns)
+    "UP",  # pyupgrade (keep 3.13 idioms)
+]
+ignore = [
+    "E501", # long lines: prompts and log messages legitimately run long
+]

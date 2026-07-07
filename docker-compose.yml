@@ -1,0 +1,51 @@
+# ProToPro — one-command startup: `docker compose up --build`
+#
+#   api  → http://localhost:8000  (FastAPI, SQLite + checkpoints on a volume)
+#   web  → http://localhost:3000  (Next.js, talks to the api service directly)
+#
+# Secrets come from .env at the repo root (gitignored; see .env.example).
+# The stack runs without any keys at all — the web falls back to seeded
+# showcase content and the API serves reads — but starting a discovery run
+# needs a funded LLM_PROVIDER key.
+#
+# Dev loop with hot-reload for the API:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+# (Web dev stays native — `cd web && pnpm dev` — for fast refresh.)
+
+name: protopro
+
+services:
+  api:
+    build: .
+    image: protopro-api:local
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Absolute data dir inside the container (see the CWD-relative
+      # foot-gun documented in PROJECT_BRAIN.md §12).
+      DATA_DIR: /app/data
+    ports:
+      # Host ports are overridable (API_PORT=8010 docker compose up) so the
+      # stack coexists with anything else already bound locally.
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - protopro-data:/app/data
+    restart: unless-stopped
+
+  web:
+    build: ./web
+    image: protopro-web:local
+    environment:
+      # Server-side only: the Next.js server reaches the API over the
+      # compose network; the browser never calls the API directly.
+      PROTOPRO_API_URL: http://api:8000
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  protopro-data:

@@ -1,0 +1,102 @@
+# ProToPro API: Deployment + PVC + Service.
+#
+# replicas MUST stay 1 while the datastore is SQLite-on-a-PVC: SQLite is
+# single-writer and the volume is RWO. Horizontal API scaling is unlocked by
+# the planned Postgres migration (a connection-string change — see
+# PROJECT_BRAIN.md §11), at which point the PVC goes away and replicas can
+# rise. strategy: Recreate for the same reason — two pods must never hold the
+# volume at once.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: protopro-api
+  namespace: protopro
+  labels:
+    app.kubernetes.io/name: protopro-api
+    app.kubernetes.io/part-of: protopro
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: protopro-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: protopro-api
+        app.kubernetes.io/part-of: protopro
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: api
+          # Replace with your registry once CI pushes images
+          # (e.g. ghcr.io/<owner>/protopro-api:<tag>).
+          image: protopro-api:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: protopro-config
+            - secretRef:
+                name: protopro-secrets
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 250m
+              # Guardrails + Chroma's local ONNX embedding model are the
+              # memory floor here, not FastAPI.
+              memory: 1Gi
+            limits:
+              memory: 2Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: protopro-api-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: protopro-api-data
+  namespace: protopro
+  labels:
+    app.kubernetes.io/part-of: protopro
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: protopro-api
+  namespace: protopro
+  labels:
+    app.kubernetes.io/name: protopro-api
+    app.kubernetes.io/part-of: protopro
+spec:
+  selector:
+    app.kubernetes.io/name: protopro-api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

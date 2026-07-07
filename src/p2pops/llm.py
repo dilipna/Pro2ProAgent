@@ -1,7 +1,7 @@
 """Thin, traced wrapper around LiteLLM so every agent call is uniformly observable."""
 
-import logfire
 import litellm
+import logfire
 
 from .config import get_settings
 

@@ -8,6 +8,88 @@
 
 ## Phase log (post-pivot)
 
+### Phase A — Production foundation: Docker, CI/CD, K8s, Promptfoo, cost tracking (2026-07-07)
+
+Closed the entire infra gap named in PROJECT_BRAIN §8 ("No Docker, no CI/CD,
+no deployment artifact") plus the two remaining LLMOps gaps (Promptfoo, LLM
+cost analytics). Full reasoning in ADR-0007/0008/0009 — highlights:
+
+- **Lint baseline first**: ruff added as a pinned dev dependency
+  (`[tool.ruff]` in pyproject: py313, E/F/I/B/UP, line-length 110 with E501
+  ignored). 27 findings; two were real fixes, not churn: `zip(...,
+  strict=True)` in build's fan-out (B905 — latent silent-truncation risk)
+  and `with_retry` converted to PEP 695 generics (UP047).
+- **Dockerization, verified by running it**: multi-stage API image (uv
+  builder → python-slim runtime, non-root, `DATA_DIR=/app/data` baked in so
+  the CWD-relative foot-gun can't exist in containers) + Next.js standalone
+  web image (`output: "standalone"` added; `PROTOPRO_API_URL` read at
+  runtime, not build). `docker compose up --build` brings up both, healthy,
+  with web→api confirmed over the compose network ("API connected" rendered
+  by the containerized console). Host ports overridable (`API_PORT`/
+  `WEB_PORT`) — needed immediately, since this machine had an unrelated
+  stack already bound to 8000. `docker-compose.dev.yml` adds API hot-reload
+  via PYTHONPATH-over-site-packages + `--reload`; web dev stays native.
+- **A real pre-existing bug found by containerizing**: `engine.py` parsed
+  the SQLite path out of `database_url` with `rsplit("///", 1)` — on a POSIX
+  absolute `data_dir` (four-slash URL) that strips the leading slash and
+  produces a *relative* path; the API container crash-looped on first boot
+  (`PermissionError: 'app'`). Windows drive-letter paths never hit it, which
+  is why 48 green tests missed it. Fixed by using `settings.data_dir`
+  directly; re-verified in the container.
+- **`GET /api/v1/health`**: end-to-end DB probe (`repo.ping()` — real
+  `SELECT 1`), 503 when degraded. Target for the Dockerfile HEALTHCHECKs,
+  Compose `depends_on: service_healthy`, and the K8s probes.
+- **Kubernetes manifests** (`deploy/k8s/`, kustomize-tied): API pinned to
+  `replicas: 1` + `strategy: Recreate` + RWO PVC (SQLite is single-writer —
+  the manifest says so instead of pretending); web is the scaled tier
+  (2 replicas + CPU HPA, safe because of Phase 2's seeded-fallback
+  statelessness). Secret template + `--from-env-file` instructions;
+  `deploy/k8s/secret.yaml` gitignored. Validated via `kubectl kustomize`
+  (no cluster on this machine).
+- **CI/CD** (`.github/workflows/`): `ci.yml` on every push — backend
+  (ruff+pytest), web (eslint+build), Docker builds of both images with GHA
+  cache, promptfoo *schema* validation. Zero paid LLM calls by design.
+  `promptfoo.yml` is separate — manual + weekly, real LLM calls, skips with
+  a `::notice::` when no `GROQ_API_KEY` secret exists.
+- **Promptfoo, the honest way** (last of the three originally-named LLMOps
+  tools with zero integration): an `exec:` provider
+  (`p2pops-promptfoo-provider`) that dispatches to the REAL agent functions
+  (`analyze_idea`, `validate_problem`) — testing a copied prompt string only
+  catches drift between the copy and the original. Fresh temp `DATA_DIR` per
+  invocation so Chroma dedupe can't leak between scenarios. 5 scenarios ran
+  live against Groq: 4/5 passed; the 1 failure was a test-design gap (the
+  guardrail *correctly* blocked the deliberately-vague test input before
+  scoring, per its own "too vague to act on" criterion) — assertion fixed to
+  accept either valid outcome, then 5/5.
+- **LLM cost tracking** (ADR-0009): new `LlmCall` table + `pricing.py`
+  (dated list-price table, unknown model → $0.00, never raises) +
+  `cost_tracking.record_usage` (best-effort, logged-and-swallowed) fed by
+  all three call-site shapes: `_structured` (covers venture *and* build via
+  the ADR-0006 seam), analyst's scorer, and research's per-message ReAct
+  capture. **The `include_raw=True` trap**: it stops LangChain raising on
+  malformed output (returns `parsing_error` instead), which would have
+  silently defeated ADR-0005's retry-on-`tool_use_failed` contract — both
+  call sites explicitly re-raise. `GET /api/v1/costs` + a console cost
+  panel (spend/calls/tokens, by-agent + by-model). Live-verified: a real
+  discovery run recorded 6 calls / 5,965 tokens / ~$0.00077, and the
+  console rendered it.
+- Console's Evaluations module: `wiring` → `live` (Promptfoo + homegrown
+  eval both real now); stale "cost dashboards are next" copy removed.
+- Tests 48 → 57 (health endpoint, pricing, cost aggregation). All green;
+  `pnpm lint`/`pnpm build` clean; compose stack verified live both tiers.
+
+Verification table:
+
+| Check | Result | Notes |
+|---|---|---|
+| `uv run ruff check src tests` | Pass (0 findings) | New baseline |
+| `uv run pytest` | Pass (57/57) | Was 48 |
+| `docker compose build` + `up` | **Pass — both containers healthy** | web→api "API connected" over compose network |
+| `kubectl kustomize deploy/k8s` | Pass | Renders clean; no cluster available for apply |
+| `promptfoo eval` (live, Groq) | **Pass 5/5** | After fixing 1 test-design gap (see above) |
+| `promptfoo validate config` | Pass | The CI job's exact command |
+| Live run → `/api/v1/costs` → console | **Pass** | Real tokens/cost attributed per agent + model |
+
 ### Phase 3 — Observability proof, evals, build-squad subgraph, console deep views (2026-07-06)
 - **Observability verified live** (previously wired but unconfirmed): ran the
   discovery pipeline for real, then queried LangSmith's REST API

@@ -87,6 +87,30 @@ export interface ApiStats {
   ideas_total: number;
 }
 
+export interface ApiCostByAgent {
+  agent: string;
+  calls: number;
+  tokens: number;
+  estimated_cost_usd: number;
+}
+
+export interface ApiCostByModel {
+  provider: string;
+  model: string;
+  calls: number;
+  tokens: number;
+  estimated_cost_usd: number;
+}
+
+export interface ApiCosts {
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  estimated_cost_usd: number;
+  by_agent: ApiCostByAgent[];
+  by_model: ApiCostByModel[];
+}
+
 interface GetOptions {
   /** Bypass the data cache — for the console's always-current metrics. */
   fresh?: boolean;
@@ -144,4 +168,8 @@ export function getOpportunity(id: string, opts?: GetOptions): Promise<ApiOpport
 
 export function getBuild(id: string, opts?: GetOptions): Promise<ApiBuildDetail | null> {
   return get<ApiBuildDetail>(`/api/v1/builds/${id}`, opts);
+}
+
+export function getCosts(opts?: GetOptions): Promise<ApiCosts | null> {
+  return get<ApiCosts>("/api/v1/costs", opts);
 }

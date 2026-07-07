@@ -1,6 +1,6 @@
 """Shared data models passed between agents and persisted to storage."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -49,4 +49,4 @@ class AnalyzedIdea(BaseModel):
     score: int | None = None
     reasoning: str | None = None
     status: str = "new"  # new | shortlisted | rejected | duplicate
-    discovered_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    discovered_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())

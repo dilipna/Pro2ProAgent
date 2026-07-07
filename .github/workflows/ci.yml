@@ -1,0 +1,108 @@
+name: CI
+
+# Runs on every push/PR: lint, test, build. No paid LLM calls happen here —
+# that's promptfoo.yml, deliberately separate (see docs/adr/0008-*.md) so a
+# routine push never burns API budget or blocks on provider availability.
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_CACHE_DIR: /tmp/uv-cache
+
+jobs:
+  backend:
+    name: Backend (lint + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Ruff lint
+        run: uv run ruff check src tests
+
+      - name: pytest
+        run: uv run pytest -q
+
+  web:
+    name: Web (lint + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - name: Build (API unreachable — exercises the seeded-fallback contract)
+        run: pnpm build
+
+  docker:
+    name: Docker build validation
+    runs-on: ubuntu-latest
+    needs: [backend, web]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Validate Compose config
+        run: docker compose config --quiet
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: protopro-api:ci
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      - name: Build web image
+        uses: docker/build-push-action@v6
+        with:
+          context: web
+          push: false
+          tags: protopro-web:ci
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+      # Future: push to ghcr.io/<owner>/protopro-{api,web} on main once a
+      # target deployment (see deploy/README.md) is wired to pull tagged
+      # images, then flip push: true above and add registry login.
+
+  promptfoo-config:
+    name: Promptfoo config validation (schema only, no LLM calls)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Validate promptfooconfig.yaml schema
+        # `validate config` is schema-only; `validate target` would actually
+        # invoke providers (real LLM calls) and belongs in promptfoo.yml
+        # instead, gated on a funded key being available.
+        run: npx --yes promptfoo@latest validate config -c promptfooconfig.yaml

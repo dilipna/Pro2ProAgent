@@ -1,5 +1,4 @@
 from conftest import make_idea
-
 from p2pops.db import repository as repo
 from p2pops.evals.analyst_eval import evaluate
 

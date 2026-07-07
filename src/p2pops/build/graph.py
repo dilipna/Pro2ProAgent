@@ -30,7 +30,15 @@ from langgraph.graph import END, START, StateGraph
 from ..db import repository as repo
 from ..venture.schemas import OpportunityDossier
 from . import agents, scoring
-from .schemas import ArchitectureSpec, BuildDossier, BuildPlan, ComponentSpec, GateResult, QAReport, ScaffoldFile
+from .schemas import (
+    ArchitectureSpec,
+    BuildDossier,
+    BuildPlan,
+    ComponentSpec,
+    GateResult,
+    QAReport,
+    ScaffoldFile,
+)
 
 
 class BuildState(TypedDict, total=False):
@@ -114,7 +122,7 @@ async def _run_engineer(
 
     results = await asyncio.gather(*(_one(c) for c in components), return_exceptions=True)
     files: list[ScaffoldFile] = []
-    for component, result in zip(components, results):
+    for component, result in zip(components, results, strict=True):
         if isinstance(result, Exception):
             await _event(state, "build/engineer", "error", f"{component.name}: {result}")
             continue

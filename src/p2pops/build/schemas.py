@@ -11,7 +11,7 @@ This is the same "code decides, LLM produces" split as venture's
 `SolutionDirection` (LLM-authored) vs. `RankedDirection` (code-computed).
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
@@ -168,4 +168,4 @@ class BuildDossier(BaseModel):
         default_factory=list, description="Append-only across rounds -- the argument, not just the conclusion"
     )
     gates: list[GateResult] = Field(default_factory=list)
-    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
