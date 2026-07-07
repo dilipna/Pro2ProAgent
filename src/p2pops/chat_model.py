@@ -25,6 +25,21 @@ from langchain_openai import ChatOpenAI
 from .config import GROQ_BASE_URL, OPENROUTER_BASE_URL, get_settings
 
 
+def resolve_model(tier: Literal["default", "builder"] = "default") -> tuple[str, str]:
+    """(provider, bare_model_name) for the active provider/tier -- the exact
+    model id `get_chat_model` passes to the SDK. Exposed separately so
+    `cost_tracking.py` can attribute usage to the same model id actually
+    called, without duplicating (and risking drift from) this branching."""
+    settings = get_settings()
+    if settings.llm_provider == "openrouter":
+        model = settings.openrouter_builder_model if tier == "builder" else settings.openrouter_default_model
+    elif settings.llm_provider == "groq":
+        model = settings.groq_builder_model if tier == "builder" else settings.groq_default_model
+    else:
+        model = settings.anthropic_builder_model if tier == "builder" else settings.anthropic_default_model
+    return settings.llm_provider, model
+
+
 def get_chat_model(
     tier: Literal["default", "builder"] = "default",
     max_tokens: int = 2048,
@@ -37,14 +52,12 @@ def get_chat_model(
     explainable outputs.
     """
     settings = get_settings()
+    provider, model_name = resolve_model(tier)
     extra: dict = {}
     if temperature is not None:
         extra["temperature"] = temperature
 
-    if settings.llm_provider == "openrouter":
-        model_name = (
-            settings.openrouter_builder_model if tier == "builder" else settings.openrouter_default_model
-        )
+    if provider == "openrouter":
         return ChatOpenAI(
             model=model_name,
             api_key=settings.openrouter_api_key,
@@ -54,8 +67,7 @@ def get_chat_model(
             **extra,
         )
 
-    if settings.llm_provider == "groq":
-        model_name = settings.groq_builder_model if tier == "builder" else settings.groq_default_model
+    if provider == "groq":
         return ChatOpenAI(
             model=model_name,
             api_key=settings.groq_api_key,
@@ -65,7 +77,6 @@ def get_chat_model(
             **extra,
         )
 
-    model_name = settings.anthropic_builder_model if tier == "builder" else settings.anthropic_default_model
     return ChatAnthropic(
         model=model_name,
         api_key=settings.anthropic_api_key,

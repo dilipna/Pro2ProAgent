@@ -89,3 +89,33 @@ class StatsOut(BaseModel):
     runs: int
     ideas_by_status: dict[str, int]
     ideas_total: int
+
+
+class HealthOut(BaseModel):
+    status: str  # "ok" | "degraded"
+    database: bool
+    version: str
+
+
+class CostByAgentOut(BaseModel):
+    agent: str
+    calls: int
+    tokens: int
+    estimated_cost_usd: float
+
+
+class CostByModelOut(BaseModel):
+    provider: str
+    model: str
+    calls: int
+    tokens: int
+    estimated_cost_usd: float
+
+
+class CostsOut(BaseModel):
+    calls: int
+    input_tokens: int
+    output_tokens: int
+    estimated_cost_usd: float
+    by_agent: list[CostByAgentOut]
+    by_model: list[CostByModelOut]

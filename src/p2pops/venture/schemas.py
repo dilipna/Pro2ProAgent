@@ -10,7 +10,7 @@ All 0-100 scores share the same semantics: 0 = catastrophically weak,
 50 = genuinely uncertain, 100 = overwhelming evidence. Confidence is 0-1.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -224,5 +224,5 @@ class OpportunityDossier(BaseModel):
     vision: ProductVision | None = None
     gates: list[GateResult] = Field(default_factory=list)
     created_at: str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+        default_factory=lambda: datetime.now(UTC).isoformat()
     )

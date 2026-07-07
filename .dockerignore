@@ -1,0 +1,24 @@
+# Build context for the API image: pyproject.toml, uv.lock, README.md, src/.
+# Everything else stays out to keep builds fast and secrets out of images.
+.git
+.venv
+.env
+.env.*
+!.env.example
+.pytest_cache
+.ruff_cache
+.claude
+__pycache__
+*.pyc
+data/
+docs/
+tests/
+web/
+deploy/
+*.db
+*.sqlite3
+*.zip
+PROJECT_BRAIN.md
+implementation-notes.md
+Dockerfile
+docker-compose*.yml

@@ -1,7 +1,7 @@
 import httpx
 import pytest
-from conftest import make_idea
 
+from conftest import make_idea
 from p2pops import runner
 from p2pops.api.app import app
 from p2pops.db import repository as repo
@@ -18,6 +18,14 @@ async def client(db, monkeypatch):
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
+
+
+async def test_health_endpoint(client):
+    res = await client.get("/api/v1/health")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "ok"
+    assert body["database"] is True
 
 
 async def test_stats_and_ideas_endpoints(client):

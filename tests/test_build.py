@@ -15,7 +15,6 @@ LLM instead of the fake.
 import json
 
 from conftest import make_idea
-
 from p2pops.build.graph import build_build_graph
 from p2pops.build.schemas import (
     ArchitectureSpec,

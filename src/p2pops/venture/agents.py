@@ -20,6 +20,7 @@ import logging
 import logfire
 from pydantic import BaseModel
 
+from .. import cost_tracking
 from ..chat_model import get_chat_model
 from ..resilience import with_retry
 from ..tools.hn import search_hn
@@ -55,7 +56,23 @@ async def _structured[T: BaseModel](
     async def call() -> T:
         with logfire.span("venture.llm", agent=agent, schema=schema.__name__):
             model = get_chat_model(tier, max_tokens=max_tokens, temperature=0.0)
-            return await model.with_structured_output(schema).ainvoke(prompt)
+            # include_raw=True surfaces the raw AIMessage (for token-usage
+            # capture) alongside the parsed schema instead of raising
+            # straight through on a malformed response -- so a
+            # parsing_error/None parse must be re-raised explicitly below to
+            # preserve the exact retry-on-malformed-output behavior ADR-0005
+            # depends on (`with_retry` classifies `tool_use_failed`/
+            # `json_validate_failed` as retryable). Silently returning None
+            # here would be a regression, not just a missed cost-tracking
+            # data point.
+            result = await model.with_structured_output(schema, include_raw=True).ainvoke(prompt)
+            if result.get("parsing_error") is not None:
+                raise result["parsing_error"]
+            parsed = result.get("parsed")
+            if parsed is None:
+                raise ValueError(f"{agent}: structured output returned no parsed result")
+            await cost_tracking.record_usage(agent, tier, result.get("raw"))
+            return parsed
 
     return await with_retry(call, agent=agent)
 

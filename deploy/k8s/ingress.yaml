@@ -1,0 +1,43 @@
+# Single ingress fronting both tiers. Host/TLS are placeholders — set them to
+# the real domain at deploy time (and keep APP_BASE_URL in the ConfigMap in
+# sync, or review-email links will point at the wrong host).
+#
+# Routing note: the public site only needs `/` → web; `/api` and `/r` go to
+# the API so review-action links and any direct API consumers work. The web
+# pods talk to the API over the internal Service, not through this ingress.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: protopro
+  namespace: protopro
+  labels:
+    app.kubernetes.io/part-of: protopro
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 1m
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: protopro.example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: protopro-api
+                port:
+                  name: http
+          - path: /r
+            pathType: Prefix
+            backend:
+              service:
+                name: protopro-api
+                port:
+                  name: http
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: protopro-web
+                port:
+                  name: http

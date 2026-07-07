@@ -9,7 +9,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from sse_starlette.sse import EventSourceResponse
@@ -23,6 +23,8 @@ from .schemas import (
     BuildCreate,
     BuildDetailOut,
     BuildOut,
+    CostsOut,
+    HealthOut,
     IdeaOut,
     OpportunityDetailOut,
     OpportunityOut,
@@ -168,6 +170,21 @@ async def create_build(payload: BuildCreate):
         detail = str(exc)
         status_code = 404 if "no such opportunity" in detail else 400
         raise HTTPException(status_code=status_code, detail=detail) from exc
+
+
+@app.get("/api/v1/health", response_model=HealthOut)
+async def get_health(response: Response):
+    """Liveness/readiness probe target (Compose healthcheck, K8s probes).
+    Degraded (database unreachable) answers 503 so orchestrators act on it."""
+    db_ok = await repo.ping()
+    if not db_ok:
+        response.status_code = 503
+    return HealthOut(status="ok" if db_ok else "degraded", database=db_ok, version=app.version)
+
+
+@app.get("/api/v1/costs", response_model=CostsOut)
+async def get_costs():
+    return await repo.cost_summary()
 
 
 @app.get("/api/v1/stats", response_model=StatsOut)

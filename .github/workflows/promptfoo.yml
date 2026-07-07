@@ -1,0 +1,46 @@
+name: Prompt regression (promptfoo)
+
+# Deliberately NOT on every push (see docs/adr/0008-*.md): this job calls
+# real LLM providers and costs real tokens. Runs manually (workflow_dispatch)
+# or weekly. Skips gracefully with a clear message if no provider key is
+# configured as a repo secret — same "degrade honestly, don't fake it"
+# pattern as the analyst eval and OKF evaluation elsewhere in this project.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+
+jobs:
+  promptfoo:
+    name: Run live prompt regression suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check for a funded provider key
+        id: gate
+        run: |
+          if [ -n "${{ secrets.GROQ_API_KEY }}" ]; then
+            echo "has_key=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_key=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No GROQ_API_KEY secret configured — skipping the live promptfoo run. Add one in repo Settings > Secrets to enable this job."
+          fi
+
+      - name: Install uv
+        if: steps.gate.outputs.has_key == 'true'
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.13"
+
+      - name: Install dependencies
+        if: steps.gate.outputs.has_key == 'true'
+        run: uv sync --all-groups
+
+      - name: Run promptfoo eval
+        if: steps.gate.outputs.has_key == 'true'
+        env:
+          LLM_PROVIDER: groq
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: npx --yes promptfoo@latest eval -c promptfooconfig.yaml --no-cache --share=false

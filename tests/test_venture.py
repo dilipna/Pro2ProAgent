@@ -8,7 +8,6 @@ persistence — runs exactly as in production, minus network and cost.
 import json
 
 from conftest import make_idea
-
 from p2pops.db import repository as repo
 from p2pops.venture import agents
 from p2pops.venture.graph import build_venture_graph

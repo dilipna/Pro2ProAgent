@@ -30,8 +30,11 @@ def get_engine() -> AsyncEngine:
         url = settings.database_url
         if url.startswith("sqlite"):
             # Ensure the data directory exists before SQLite touches the file.
-            db_path = url.rsplit("///", 1)[-1]
-            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+            # Use data_dir directly rather than re-parsing the URL: a POSIX
+            # absolute data_dir yields a four-slash URL (sqlite:////app/...)
+            # where rsplit("///") strips the leading slash and turns the path
+            # relative — observed live as a container crash-loop.
+            Path(settings.data_dir).mkdir(parents=True, exist_ok=True)
         _engine = create_async_engine(url)
         _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
     return _engine

@@ -1,0 +1,27 @@
+# Development override: hot-reload for the API container.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# Mounts the live source tree ahead of the installed package (PYTHONPATH wins
+# over site-packages) and runs uvicorn with --reload, so backend edits apply
+# without rebuilding the image. Web dev is deliberately NOT containerized —
+# `cd web && pnpm dev` gives fast refresh that a bind-mounted container on
+# Windows/macOS cannot match.
+
+services:
+  api:
+    environment:
+      PYTHONPATH: /app/src
+      ENVIRONMENT: development
+    volumes:
+      - ./src:/app/src:ro
+      - protopro-data:/app/data
+    command:
+      [
+        "uvicorn",
+        "p2pops.api.app:app",
+        "--host", "0.0.0.0",
+        "--port", "8000",
+        "--reload",
+        "--reload-dir", "/app/src",
+      ]

@@ -7,6 +7,7 @@ AnalyzedIdea` transform that is trivial to evaluate in isolation.
 
 import logfire
 
+from p2pops import cost_tracking
 from p2pops.chat_model import get_chat_model
 from p2pops.guardrails import is_idea_allowed
 from p2pops.memory import find_duplicate
@@ -43,11 +44,21 @@ async def analyze_idea(idea: DiscoveredIdea) -> AnalyzedIdea:
                 reasoning=f"Near-duplicate of existing idea {duplicate_id}",
             )
 
-        async def score():
-            model = get_chat_model("default").with_structured_output(IdeaVerdict)
-            return await model.ainvoke(
+        async def score() -> IdeaVerdict:
+            model = get_chat_model("default").with_structured_output(IdeaVerdict, include_raw=True)
+            # See venture/agents.py::_structured for why parsing_error/None
+            # must be re-raised rather than silently returned -- same
+            # retry-on-malformed-output contract applies here.
+            result = await model.ainvoke(
                 SCORE_PROMPT_TEMPLATE.format(title=idea.title, description=idea.description)
             )
+            if result.get("parsing_error") is not None:
+                raise result["parsing_error"]
+            verdict = result.get("parsed")
+            if verdict is None:
+                raise ValueError("analyst.scorer: structured output returned no parsed result")
+            await cost_tracking.record_usage("analyst.scorer", "default", result.get("raw"))
+            return verdict
 
         verdict: IdeaVerdict = await with_retry(score, agent="analyst.scorer")
 

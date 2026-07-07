@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { getOpportunities, getRuns, getStats } from "@/lib/api";
+import { getCosts, getOpportunities, getRuns, getStats } from "@/lib/api";
 import { Wordmark } from "@/components/nav";
 
 // Operations view: metrics must be current, never a stale cached render.
@@ -59,9 +59,9 @@ const MODULES: {
   {
     name: "Evaluations",
     detail:
-      "Human review decisions become labeled datasets; prompt changes gate on regression suites.",
-    stack: "Braintrust · Promptfoo",
-    status: "wiring",
+      "Analyst-vs-human agreement report from real review decisions, plus a live prompt regression suite exercising the actual agent code paths.",
+    stack: "Promptfoo · homegrown eval",
+    status: "live",
   },
 ];
 
@@ -195,6 +195,111 @@ async function RecentActivity() {
   );
 }
 
+function formatCost(usd: number): string {
+  if (usd === 0) return "$0.00";
+  if (usd < 0.01) return `$${usd.toFixed(4)}`;
+  return `$${usd.toFixed(2)}`;
+}
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
+async function CostPanel() {
+  const costs = await getCosts({ fresh: true });
+
+  return (
+    <div className="mt-14">
+      <div className="mb-4 flex items-baseline justify-between">
+        <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-mist-600">LLM cost</p>
+        <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-mist-700">
+          Estimated against list price · not a billing reconciliation
+        </p>
+      </div>
+
+      {!costs || costs.calls === 0 ? (
+        <div className="glass rounded-2xl p-6">
+          <p className="text-sm text-mist-600">
+            {costs ? "No LLM calls recorded yet." : "API offline — cost data unavailable."}
+          </p>
+        </div>
+      ) : (
+        <div className="glass rounded-2xl p-6">
+          <div className="grid grid-cols-3 gap-6 border-b hairline pb-6 sm:grid-cols-4">
+            <div className="flex flex-col gap-1.5">
+              <span className="font-mono text-2xl tracking-tight text-mist-50">
+                {formatCost(costs.estimated_cost_usd)}
+              </span>
+              <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-mist-600">
+                estimated spend
+              </span>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="font-mono text-2xl tracking-tight text-mist-50">{costs.calls}</span>
+              <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-mist-600">
+                LLM calls
+              </span>
+            </div>
+            <div className="hidden flex-col gap-1.5 sm:flex">
+              <span className="font-mono text-2xl tracking-tight text-mist-50">
+                {formatTokens(costs.input_tokens)}
+              </span>
+              <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-mist-600">
+                input tokens
+              </span>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="font-mono text-2xl tracking-tight text-mist-50">
+                {formatTokens(costs.output_tokens)}
+              </span>
+              <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-mist-600">
+                output tokens
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-6 grid gap-8 sm:grid-cols-2">
+            <div>
+              <p className="mb-3 font-mono text-[10px] uppercase tracking-[0.14em] text-mist-600">By agent</p>
+              <ul className="space-y-2">
+                {costs.by_agent
+                  .slice()
+                  .sort((a, b) => b.estimated_cost_usd - a.estimated_cost_usd)
+                  .map((row) => (
+                    <li key={row.agent} className="flex items-center justify-between text-sm">
+                      <span className="truncate text-mist-300">{row.agent}</span>
+                      <span className="ml-3 shrink-0 font-mono text-[11px] text-mist-500">
+                        {formatCost(row.estimated_cost_usd)} · {row.calls} call{row.calls === 1 ? "" : "s"}
+                      </span>
+                    </li>
+                  ))}
+              </ul>
+            </div>
+            <div>
+              <p className="mb-3 font-mono text-[10px] uppercase tracking-[0.14em] text-mist-600">By model</p>
+              <ul className="space-y-2">
+                {costs.by_model
+                  .slice()
+                  .sort((a, b) => b.estimated_cost_usd - a.estimated_cost_usd)
+                  .map((row) => (
+                    <li key={`${row.provider}/${row.model}`} className="flex items-center justify-between text-sm">
+                      <span className="truncate text-mist-300">{row.model}</span>
+                      <span className="ml-3 shrink-0 font-mono text-[11px] text-mist-500">
+                        {formatCost(row.estimated_cost_usd)} · {formatTokens(row.tokens)} tok
+                      </span>
+                    </li>
+                  ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ConsolePage() {
   return (
     <div className="grain relative flex min-h-svh flex-col">
@@ -253,10 +358,12 @@ export default function ConsolePage() {
 
         <RecentActivity />
 
+        <CostPanel />
+
         <p className="animate-rise mt-14 max-w-lg font-mono text-[11px] leading-relaxed text-mist-600 [animation-delay:480ms]">
           Metrics above are read live from the pipeline&apos;s run store.
           Click through a run or opportunity for its full event timeline or
-          dossier. Per-agent cost and eval dashboards are next.
+          dossier.
         </p>
       </main>
     </div>

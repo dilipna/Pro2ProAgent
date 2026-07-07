@@ -6,7 +6,7 @@ migrating (deviation from ADR-0001 logged in implementation-notes.md).
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -17,7 +17,7 @@ def new_id() -> str:
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class Base(DeclarativeBase):
@@ -120,6 +120,29 @@ class Build(Base):
     dossier: Mapped[str | None] = mapped_column(Text, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+
+class LlmCall(Base):
+    """One structured-output LLM call's token usage and estimated cost.
+
+    A global ledger, not run-scoped: `agent` (e.g. "venture/validator",
+    "analyst.scorer", "research") is the attribution key the console cost
+    view aggregates by. No FK to `runs` — threading run_id through every
+    agent call site (research's ReAct loop, all ten venture/build agents)
+    for this alone was judged not worth the invasiveness; see
+    docs/adr/0009-cost-tracking.md for the scope call.
+    """
+
+    __tablename__ = "llm_calls"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    agent: Mapped[str] = mapped_column(String(40), index=True)
+    provider: Mapped[str] = mapped_column(String(20))
+    model: Mapped[str] = mapped_column(String(80))
+    input_tokens: Mapped[int] = mapped_column(Integer)
+    output_tokens: Mapped[int] = mapped_column(Integer)
+    estimated_cost_usd: Mapped[float] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
 class Review(Base):

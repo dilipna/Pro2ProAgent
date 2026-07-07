@@ -17,7 +17,6 @@ import asyncio
 import logging
 import re
 from collections.abc import Awaitable, Callable
-from typing import TypeVar
 
 from langgraph.errors import GraphRecursionError
 
@@ -37,8 +36,6 @@ _NON_RETRYABLE_TYPES: tuple[type[Exception], ...] = (GraphRecursionError,)
 # case above: same status code family, but here the *specific* code says
 # "try again," not "this can never work."
 _RETRYABLE_GENERATION_ERROR_CODES = ("tool_use_failed", "json_validate_failed")
-
-T = TypeVar("T")
 
 _RETRY_AFTER_IN_MESSAGE = re.compile(r"try again in ([\d.]+)\s*s", re.IGNORECASE)
 
@@ -118,7 +115,7 @@ def _is_retryable(exc: Exception) -> bool:
     return True
 
 
-async def with_retry(
+async def with_retry[T](
     fn: Callable[[], Awaitable[T]],
     *,
     agent: str,

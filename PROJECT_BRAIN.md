@@ -51,10 +51,10 @@
 - Test suite (48 tests) covers unit logic (scoring, resilience classification), integration (repository, hermetic ASGI API tests), and full offline graph execution (both the venture pipeline's and build-squad's entire happy/rejection/revision paths run for real, with only the LLM call substituted) — a good testing pyramid.
 
 ### Weaknesses / gaps (see §3 and §12 for the full itemized list)
-- No Promptfoo — the one originally-named stack tool still not integrated at all (Braintrust's role is covered by a homegrown eval instead).
-- No Docker/Compose, no CI/CD pipeline, no deployment.
+- No public deployment yet — Docker/Compose/K8s/CI all exist and are verified (Phase A), but the actual hosted demo needs platform credentials (Vercel + a container host) the user hasn't supplied.
 - No Reddit source (deferred by explicit user choice, HN-only).
 - `llm.py`'s single-caller `complete()` function has no retry/resilience wrapping (documented, deliberate, low-risk gap).
+- Cost ledger is global, not run-scoped (deliberate scope call, ADR-0009).
 
 ---
 
