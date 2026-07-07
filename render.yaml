@@ -1,0 +1,56 @@
+# Render Blueprint — deploys the ProToPro API from this repo's Dockerfile.
+#
+# One-time setup: dashboard.render.com → New → Blueprint → connect
+# dilipna/Pro2ProAgent → Render reads this file. Then fill in the sync:false
+# secret env vars (at minimum GROQ_API_KEY) when prompted.
+#
+# The disk requires the paid starter plan (~$7/mo). To run on the free tier
+# instead: delete the `disk:` block and change `plan: starter` to
+# `plan: free` — the API works but SQLite data resets on every deploy and
+# the service sleeps after idle. The web tier's seeded fallback tolerates
+# both gracefully.
+
+services:
+  - type: web
+    name: protopro-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter
+    region: oregon
+    healthCheckPath: /api/v1/health
+    disk:
+      name: protopro-data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      # Render's proxy routes to the port named here; the image binds 8000.
+      - key: PORT
+        value: "8000"
+      - key: DATA_DIR
+        value: /app/data
+      - key: ENVIRONMENT
+        value: production
+      - key: LLM_PROVIDER
+        value: groq
+      # Public URL used inside review-email approve/reject links. If Render
+      # assigns a different hostname (name collision), update this to match.
+      - key: APP_BASE_URL
+        value: https://protopro-api.onrender.com
+      # Mutating endpoints (POST /runs, /builds) must not be open on a
+      # public host — Render generates a random bearer token at deploy.
+      - key: API_TOKEN
+        generateValue: true
+      # Secrets — set in the Render dashboard, never in this file:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: LANGSMITH_API_KEY
+        sync: false
+      - key: LANGSMITH_PROJECT
+        value: p2pops
+      - key: LOGFIRE_TOKEN
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: REVIEW_EMAIL_TO
+        sync: false
