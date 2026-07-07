@@ -48,10 +48,10 @@
 - Real, live-verified correctness, not just passing unit tests: the entire chain (discover → analyze → email → approve → venture-pipeline → dossier) has been run against real hosted LLM APIs end to end, and the failures encountered along the way were root-caused and fixed, with tests added to prevent regression. This is a materially stronger portfolio signal than a project that only ever ran against mocks.
 - Deterministic, explainable decision-making layered on top of LLM outputs: `venture/scoring.py` computes ranking and gate pass/fail in plain Python from LLM-supplied sub-scores — reproducible, unit-tested, and not "vibes."
 - Every non-obvious engineering decision is written down as an ADR with the reasoning and trade-offs, not just the outcome.
-- Test suite (37 tests) covers unit logic (scoring, resilience classification), integration (repository, hermetic ASGI API tests), and full offline graph execution (the venture pipeline's entire happy/rejection/parking paths run for real, with only the LLM call substituted) — a good testing pyramid.
+- Test suite (48 tests) covers unit logic (scoring, resilience classification), integration (repository, hermetic ASGI API tests), and full offline graph execution (both the venture pipeline's and build-squad's entire happy/rejection/revision paths run for real, with only the LLM call substituted) — a good testing pyramid.
 
 ### Weaknesses / gaps (see §3 and §12 for the full itemized list)
-- No Braintrust, no Promptfoo — two of the originally-named stack tools are not integrated at all.
+- No Promptfoo — the one originally-named stack tool still not integrated at all (Braintrust's role is covered by a homegrown eval instead).
 - No Docker/Compose, no CI/CD pipeline, no deployment.
 - No Reddit source (deferred by explicit user choice, HN-only).
 - `llm.py`'s single-caller `complete()` function has no retry/resilience wrapping (documented, deliberate, low-risk gap).
@@ -67,27 +67,29 @@
 - Phase 1.5: Groq provider integration, full LLM-call resilience layer, 5 real bugs found/fixed via live iteration, first fully clean live run of the entire chain including 2 honest parks and 1 complete product vision.
 - Console status badges corrected (Runs, Human gate → `live`; committed at `aab6f29` alongside this document's creation).
 - Phase 2: frontend wired to the live API — server-side client with timeout + seeded fallback, ISR on the landing page, force-dynamic console with a live metrics strip. Verified live in both the API-up and API-down states.
+- Phase 3: LangSmith/Logfire verified live via API (not just wired); a first eval (`p2pops-eval`, dependency-free); the **build-squad subgraph** (PM → Architect → Engineer → QA) shipped and live-verified against a real opportunity; console deep views (`/console/runs/[id]`, `/console/opportunities/[id]`) rendering the full event timeline and dossier/scaffold, read-only.
 
 ### In Progress / Partially Implemented
-- **Observability**: LangSmith and Logfire are fully *wired* in code (`telemetry.py`) but **no API token has ever been supplied for either** — meaning no trace has ever actually been confirmed to land in a LangSmith or Logfire dashboard. Local Logfire instrumentation (Pydantic validation spans) is visible in logs regardless. (Related honesty note: the console's "Tracing" badge reads `live`, which slightly overstates this — see §12.)
-- **Console depth**: the live metrics strip is real, but run timelines / graph state / per-agent cost views are still not rendered (the `RunEvent` data and SSE stream exist and are unconsumed by the UI).
+- **Console depth**: run timelines and opportunity/build dossiers now render in the UI, but there's still no per-agent cost view or a real visual graph-state representation (just a linear event list) — the natural next UI milestone.
+- **Build-squad scaffolds are DB-only** — real, inspectable content, but nothing writes the scaffold to an actual directory on disk yet.
 
 ### Planned (explicitly discussed, not started)
-- Build-squad subgraph (PM → Architect → Engineer fan-out → QA) for turning an approved *venture opportunity* into actual scaffold code — note this is a different, not-yet-built stage beyond the venture pipeline's product-vision output.
-- Evals (Braintrust datasets from human review decisions) and prompt regression testing (Promptfoo in CI).
+- Prompt regression testing (Promptfoo in CI) — the last of the three originally-named LLMOps stack tools with zero integration (Braintrust-equivalent and LangSmith/Logfire are both now live).
 - Deployment (Docker Compose locally, then a real URL — Vercel + a small Python host).
+- CI/CD (no GitHub Actions workflow exists at all yet — Promptfoo would be the first job in one).
 
 ### Missing
 - CI/CD, Docker, any deployment artifact.
 - Reddit as a second discovery source (PRAW).
 - Any authentication/authorization beyond the optional single bearer token.
 - Postgres migration (SQLite is the only datastore; fine at current scale, explicitly logged as a deviation to revisit).
+- Real Braintrust/Promptfoo integration (the homegrown eval is a stand-in for Braintrust specifically; Promptfoo has no stand-in at all yet).
 
 ### Blocked
 - Nothing is currently blocked. (Historical note: Anthropic-direct and OpenRouter both ran out of credit/balance during development; Groq is the working live provider as of this writing, see §7 and ADR-0005.)
 
 ### Overall completion estimate
-Roughly **65–70% of a "flagship" version** of this project (discovery + validation + human gate + venture synthesis + resilience + a live-wired frontend, all live-verified) vs. the further-out vision (build-squad code generation, evals-in-CI, deployed public product). As a *portfolio piece demonstrating LLMOps/AgentOps engineering maturity*, the backend and the live site are now both strong; the biggest remaining levers for interview impact are the evals/observability proof (Braintrust/Promptfoo/a real LangSmith trace screenshot) and the build-squad subgraph.
+Roughly **80–85% of a "flagship" version** of this project (discovery + validation + human gate + venture synthesis + resilience + build-squad scaffolding + evals + verified observability + a live-wired frontend with deep views, all live-verified) vs. the further-out vision (evals-in-CI, a deployed public product). As a *portfolio piece demonstrating LLMOps/AgentOps engineering maturity*, every one of the originally-named stack tools now has at least a working, honestly-scoped implementation except Promptfoo; the remaining levers are almost entirely infra/deployment (CI, Docker, a real URL) rather than missing AI-engineering capability.
 
 ---
 
@@ -348,7 +350,7 @@ Runs manually (CLI `p2pops-build <opportunity_id>`, or protected `POST /api/v1/b
 - **Secrets management**: `.env` (gitignored), `.env.example` as the template. A real bug was found and fixed here: blank values (`KEY=`) parsed as empty string, not `None`, silently defeating truthy checks — fixed with a `field_validator` (`config.py`, `_BLANKABLE_FIELDS`) that normalizes every optional secret field.
 - **Environment variables**: fully enumerated in `.env.example` — provider keys, model overrides, HITL email config, API token, data directory. See §13.
 - **Build process**: `uv sync` (Python), `pnpm install` (web). No bundling/packaging beyond that yet.
-- **Testing process**: `uv run pytest` — 37 tests, all passing as of the last commit. No test runner configured in CI (because there is no CI).
+- **Testing process**: `uv run pytest` — 48 tests, all passing as of the last commit. No test runner configured in CI (because there is no CI).
 - **Scalability considerations**: SQLite is a known, deliberate, logged limitation (ADR mentions Postgres migration as future work); sequential venture-pipeline execution per run is a deliberate cost/concurrency throttle, not a scalability ceiling that's been hit yet.
 
 ---
