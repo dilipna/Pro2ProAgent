@@ -20,6 +20,9 @@ from ..db import repository as repo
 from ..db.engine import dispose_engine, init_db
 from ..telemetry import configure_telemetry
 from .schemas import (
+    BuildCreate,
+    BuildDetailOut,
+    BuildOut,
     IdeaOut,
     OpportunityDetailOut,
     OpportunityOut,
@@ -126,7 +129,45 @@ async def get_opportunity(opportunity_id: str):
     opp = await repo.get_opportunity(opportunity_id)
     if opp is None:
         raise HTTPException(status_code=404, detail="Opportunity not found")
-    return opp
+    # No ORM `build` attribute exists (Build is a separate append-only
+    # table, not a relationship) -- compose the response by hand.
+    build = await repo.get_build_for_opportunity(opportunity_id)
+    return OpportunityDetailOut(
+        id=opp.id,
+        run_id=opp.run_id,
+        idea_id=opp.idea_id,
+        status=opp.status,
+        created_at=opp.created_at,
+        completed_at=opp.completed_at,
+        dossier=opp.dossier,
+        build=BuildOut.model_validate(build) if build else None,
+    )
+
+
+@app.get("/api/v1/builds/{build_id}", response_model=BuildDetailOut)
+async def get_build(build_id: str):
+    build = await repo.get_build(build_id)
+    if build is None:
+        raise HTTPException(status_code=404, detail="Build not found")
+    return build
+
+
+@app.post(
+    "/api/v1/builds", response_model=BuildOut, status_code=202, dependencies=[Depends(require_operator)]
+)
+async def create_build(payload: BuildCreate):
+    """Protected the same as `POST /api/v1/runs` -- strictly cheaper/lower
+    blast-radius than that endpoint, so this doesn't raise the risk
+    ceiling the project already accepts. No frontend button calls this;
+    the console stays read-only. The operator-facing trigger is the
+    `p2pops-build` CLI (`runner.execute_build`, blocking); this endpoint
+    is the async equivalent (`runner.start_build`) for future automation."""
+    try:
+        return await runner.start_build(payload.opportunity_id)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "no such opportunity" in detail else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
 
 
 @app.get("/api/v1/stats", response_model=StatsOut)
@@ -178,7 +219,7 @@ async def review_action(token: str, decision: str):
 
     resumed = await runner.maybe_resume_after_decision(review.run_id)
     heading = (
-        "Approved — the build squad takes it from here"
+        "Approved — the venture pipeline takes it from here"
         if normalized == "approved"
         else "Rejected — noted"
     )

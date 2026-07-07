@@ -131,6 +131,19 @@ Roughly **65–70% of a "flagship" version** of this project (discovery + valida
      │      ──▶ validation_gate (code) ──▶ architect ──▶ rank (code)  │
      │      ──▶ direction_gate (code) ──▶ stress ⇄ refine (≤2 rounds) │
      │      ──▶ vision ──▶ finish (persists OpportunityDossier JSON)  │
+     └──────────────────────────────────────────────┬────────────────┘
+                                                      │ manual trigger only:
+                                                      │ `p2pops-build <opportunity_id>`
+                                                      │ or protected POST /api/v1/builds
+                                                      ▼
+     ┌──────────────────────────────────────────────────────────────┐
+     │  build/graph.py — build-squad (stateless, manually triggered)  │
+     │                                                                 │
+     │  pm ──▶ architect ──▶ engineer (asyncio.gather, N components)  │
+     │      ──▶ qa (code gate) ──▶ complete                            │
+     │                        └──▶ revise (≤1 round) ──▶ qa            │
+     │                        └──▶ needs_revision (exhausted)          │
+     │      ──▶ finish (persists BuildDossier JSON on `builds` row)   │
      └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -144,6 +157,8 @@ src/p2pops/
   mcp/              server.py (FastMCP server: search_hacker_news, read_article)
   tools/            hn.py (HN Algolia search), web.py (article text extraction)
   venture/          agents.py, graph.py, principles.py, schemas.py, scoring.py
+  build/            agents.py, graph.py, schemas.py, scoring.py (build-squad, ADR-0006)
+  evals/            analyst_eval.py (Analyst-vs-human agreement report)
   chat_model.py     provider-agnostic LangChain chat model factory
   config.py         pydantic-settings Settings (env-driven, blank-string-safe)
   graph.py          discovery pipeline StateGraph
@@ -153,13 +168,16 @@ src/p2pops/
   models.py         shared pydantic schemas (DiscoveredIdea, AnalyzedIdea, ...)
   notify.py         email HITL notifier (Console/Resend adapters)
   pipeline.py       CLI entrypoint for a single discovery run
+  build_cli.py      CLI entrypoint for a single build-squad run
   resilience.py     rate-limit-aware retry (the resilience layer, ADR-0005)
   runner.py         run lifecycle: start/execute/resume, owns the checkpointer
   telemetry.py      LangSmith + Logfire wiring
 
 web/src/
   app/              page.tsx (landing), console/page.tsx, layout.tsx, globals.css
+  app/console/      runs/[id]/page.tsx, opportunities/[id]/page.tsx (read-only deep views)
   components/       nav, hero, method, showcase, pipeline-stats, footer, reveal
+  lib/api.ts        server-side /api/v1 client (timeout + seeded-fallback)
   lib/cases.ts      hand-seeded showcase content (real pipeline output, static)
 ```
 
@@ -170,7 +188,8 @@ web/src/
 4. A human clicks `/r/{token}/approve` or `/reject` → `record_decision` consumes the token (single-use, expiring) and updates the `Idea` status.
 5. Once every review for a run is decided, `maybe_resume_after_decision` fires `resume_run`, which resumes the checkpointed graph with `Command(resume=decisions)`.
 6. For every **approved** idea, `runner.execute_venture` runs the venture subgraph sequentially (deliberately sequential — a concurrency/cost control knob, not an oversight), producing an `Opportunity` row with the full `OpportunityDossier` JSON.
-7. The API and (eventually) the frontend read all of this back through `/api/v1/runs`, `/ideas`, `/opportunities`, `/stats`, and the SSE stream.
+7. The API and frontend read all of this back through `/api/v1/runs`, `/ideas`, `/opportunities`, `/stats`, and the SSE stream — live-wired since Phase 2.
+8. On a `complete` opportunity, an operator may manually run `p2pops-build <opportunity_id>` (or the protected `POST /api/v1/builds`) — `runner.execute_build`/`start_build` drives the build-squad subgraph, producing a `Build` row with the `BuildDossier` JSON. Never automatic; the console never exposes a trigger button.
 
 ### Memory architecture
 Two distinct, deliberately different memory systems — do not conflate them:
@@ -191,8 +210,8 @@ Two distinct, deliberately different memory systems — do not conflate them:
 | API | FastAPI 0.139 + `sse-starlette` | Live |
 | DB | SQLAlchemy 2.0 (async) + `aiosqlite` | Live, SQLite |
 | Email | Resend (HTTP) / console fallback | Live (console adapter used in all testing so far) |
-| Observability | LangSmith, Pydantic Logfire | Wired, **not yet verified against real dashboards** (no tokens supplied) |
-| Evals | Braintrust, Promptfoo | **Not integrated** |
+| Observability | LangSmith, Pydantic Logfire | **Live, verified** — a real run's traces confirmed via the LangSmith REST API (matching run IDs/timestamps) and Logfire's own successful-auth project URL, both 2026-07-06 |
+| Evals | Braintrust (not integrated), homegrown | `p2pops-eval`: Analyst-vs-human agreement report over `Review.decision` data — live, dependency-free (no Braintrust key supplied) |
 | Frontend | Next.js 16, Tailwind v4, Motion | Live, wired to the API (seeded fallback when offline) |
 | Package mgmt | `uv` (Python), `pnpm` (Node) | — |
 
@@ -209,6 +228,7 @@ Two distinct, deliberately different memory systems — do not conflate them:
 - **ADR-0003**: above-the-fold content must be CSS-animated, never dependent on JS hydration to become visible (a real bug was caught and fixed this way).
 - **ADR-0004**: the venture pipeline's full design — why code (not LLMs) makes gate/ranking decisions, why a curated principle library grounds the architect agent, why the refinement loop is bounded and parks rather than loops forever.
 - **ADR-0005**: the resilience layer and Groq model choice — five real live bugs, root-caused and fixed, not papered over. This is arguably the single most interview-relevant document in the repo.
+- **ADR-0006**: the build-squad subgraph — why the LLM never chooses a scaffold file's path/language (code does, from a keyword-matched heuristic), why `asyncio.gather` over LangGraph `Send`, why QA is a structured document review not code execution, why the trigger is CLI/protected-POST only with no public button.
 
 ---
 
@@ -225,10 +245,10 @@ Two distinct, deliberately different memory systems — do not conflate them:
 | Venture opportunity pipeline | Done, live | 4 parallel agents + architect + red team + refiner + strategist | All venture/ agents | Persist evidence retrieval as reusable context across ideas | High |
 | Deterministic scoring/gates | Done, tested | `venture/scoring.py` | — (code) | Tune weights against real outcomes once there's a track record | Medium |
 | LLM-call resilience | Done, tested | `resilience.py` | All agents | Extend to `llm.py`'s `complete()` | Low |
-| Public landing page | Done, live-wired (ISR, seeded fallback) | Next.js + `/api/v1` | — | Opportunity dossier detail pages | Medium |
-| Operations console | Done, live metrics strip (force-dynamic) | Next.js + `/api/v1` | — | Run timelines / graph view from `RunEvent` + SSE | High |
-| Build-squad code generation | **Not started** | — | PM/Architect/Engineer/QA (planned) | Whole new subgraph | High (biggest remaining "wow" feature) |
-| Evals (Braintrust) | **Not started** | — | — | Turn human review decisions into eval datasets | Medium |
+| Public landing page | Done, live-wired (ISR, seeded fallback) | Next.js + `/api/v1` | — | Deeper showcase interactivity | Low |
+| Operations console | Done, live metrics + run/opportunity deep views (read-only) | Next.js + `/api/v1` | — | Per-agent cost view; live graph state visualization | Medium |
+| Build-squad scaffolding | **Done, live-verified** | PM/Architect/Engineer/QA (`build/`) | build-squad agents | Real file-tree persistence to disk (currently DB-only); richer per-language scaffolds | Medium |
+| Evals (homegrown) | **Done, live** | `evals/analyst_eval.py` | — (code) | Wire to Braintrust if a key becomes available; grow past N=9 | Medium |
 | Prompt regression CI (Promptfoo) | **Not started** | — | — | GitHub Actions job | Medium |
 | Deployment | **Not started** | Docker, hosting | — | Docker Compose first, then a real URL | Medium |
 
@@ -285,15 +305,33 @@ All share a uniform contract: **structured input context (idea + upstream artifa
 
 **Failure handling**: per-idea containment in `runner.execute_venture` — one idea's venture pipeline throwing an unhandled exception does not take down the others or the parent run; it's recorded as an `opportunity.status="failed"` with an error event.
 
+### Build-squad agents (`build/agents.py`, `build/graph.py`) — ADR-0006
+
+Runs manually (CLI `p2pops-build <opportunity_id>`, or protected `POST /api/v1/builds`) against one `complete` `OpportunityDossier` — never automatically. Same LLM-call seam as venture (`build/agents.py` calls `venture_agents._structured(...)` via module-attribute access, not a re-import, so the one shared seam covers both packages).
+
+| Agent | Inputs | Output schema | Success criteria (from the agent's own instructions) |
+|---|---|---|---|
+| Product Manager | opportunity vision/direction/segments/landscape | `BuildPlan` (3-8 features, tech stack, non-goals) | P0-first prioritization; acceptance criteria concrete enough to build against; explicit non-goals bound scope |
+| Architect | `BuildPlan` | `ArchitectureSpec` (3-6 components + data model + API surface) | Every P0 feature covered by some component; `tech` named plainly enough to be keyword-matchable |
+| Engineer | one `ComponentSpec` at a time (fan-out) | `ScaffoldContent` (content only — **never** path/language) | Real structure with explicit TODOs, not a placeholder comment; consistent with the shared data model |
+| **Scaffold targeting** | `ComponentSpec.tech` | `(path, language)` | **Not an agent — deterministic code** (`scoring.scaffold_target`): keyword-matched, so the LLM can never choose an unsafe or arbitrary path |
+| QA | plan + architecture + all scaffold files | `QAReport` | Structured *document* review (explicitly not code execution); verdict follows from its own issues, mirroring Red Team's rule |
+
+**Orchestration**: `pm → architect → engineer` (one `asyncio.gather` call per component, `return_exceptions=True` so one component's failure doesn't abort the build) `→ qa` → deterministic `qa_gate` → **bounded revision** (`revise ⇄ qa`, `MAX_QA_ROUNDS=2` — i.e. exactly one revision attempt, same "total rounds" convention as `MAX_REFINEMENT_ROUNDS`) → `finish` (persists `BuildDossier`: `complete` or an honestly-surfaced `needs_revision`).
+
+**Live-verified** (2026-07-06) against the real "TrustLayer SDK" opportunity: PM proposed 7 features, Architect designed 4 components (SDK Core Integration, Metrics Engine, GitHub Action Plugin, Evaluation Store), Engineer scaffolded all 4 (`main.py` ×2, `README.md`, `schema.sql` — the keyword heuristic chose correctly, including the README fallback for the GitHub Action plugin), QA **blocked** round 1 on 2 real critical issues (stub methods that don't call the real API), `revise` correctly re-ran only those 2 named components, QA **blocked again** on round 2 (1 remaining critical issue), and — with `MAX_QA_ROUNDS` exhausted — the build honestly landed on `needs_revision`, not a silently-accepted `complete`. This is the same "the bounded loop worked, this is a feature not a failure" story as venture pipeline's own 2 honest parks in Phase 1.5.
+
+**Failure handling**: per-component containment inside Engineer's fan-out (mirrors `execute_venture`'s per-idea containment, one level deeper); the whole build is contained by `runner.execute_build`'s try/except (`build.status="failed"` + error event, never propagates).
+
 ---
 
 ## 7. LLMOps / AgentOps
 
 - **Prompt management**: prompts are Python string constants co-located with the agent that uses them (e.g., `RESEARCH_SYSTEM_PROMPT`, `SCORE_PROMPT_TEMPLATE`, the inline prompts inside each `venture/agents.py` function). **No prompt versioning system** — this is a real gap for a "production-grade" claim; currently, prompt changes are just git history.
-- **Observability**: `telemetry.configure_telemetry()` wires LangSmith (env-var based) and Pydantic Logfire (`logfire.span` around every agent call, `logfire.instrument_pydantic()`). **Neither has ever been confirmed against a live dashboard** — no `LANGSMITH_API_KEY` or `LOGFIRE_TOKEN` has been supplied. This is the single most valuable and cheapest next step for interview-readiness: get one real trace screenshot.
-- **Logging**: every pipeline/venture node writes a `RunEvent` row (agent, event_type, message, duration_ms) — this is the AgentOps timeline the console is meant to visualize. Currently only consumed via the raw API, not rendered as a UI timeline yet.
+- **Observability**: `telemetry.configure_telemetry()` wires LangSmith (env-var based) and Pydantic Logfire (`logfire.span` around every agent call, `logfire.instrument_pydantic()`). **Verified live 2026-07-06**: `LANGSMITH_API_KEY`/`LOGFIRE_TOKEN` were supplied; a real discovery-pipeline run and a real build-squad run were both confirmed landing in LangSmith via its REST API (`/runs/query`, matching run IDs/timestamps/node names — `human_gate`, `qa`, `route_after_qa`, `mark_needs_revision`, etc.), and Logfire's `configure()` printed a real, working project URL (`https://logfire-us.pydantic.dev/dsharp/starter-project`) with no auth error. No longer a gap.
+- **Logging**: every pipeline/venture/build node writes a `RunEvent` row (agent, event_type, message, duration_ms) — this is the AgentOps timeline. Now rendered in the UI too: `/console/runs/[id]` shows the full timeline for one run; `/console/opportunities/[id]` shows the parsed dossier plus any build scaffold.
 - **Monitoring**: none beyond the above (no dashboards, no alerting).
-- **Evaluation pipeline**: **not implemented.** Braintrust and Promptfoo are named in the original stack and in ADR discussions but no code exists for either. The honest next step: human review decisions (`Review.decision`) are already exactly the labeled data a Braintrust eval dataset would need — this is a small, well-motivated addition, not a redesign.
+- **Evaluation pipeline**: **started, homegrown.** `p2pops-eval` (`evals/analyst_eval.py`) turns `Review.decision` (surfaced on `Idea.status`) into an agreement-rate + score-correlation report against the Analyst's shortlist. No `BRAINTRUST_API_KEY` exists, so this ships dependency-free rather than forcing an unavailable hosted tool (same judgment call as OKF, §12) — structured so it could feed a Braintrust `Eval(...)` later without a rewrite. Honest scope limit: only measures the Analyst's *precision* (shortlisted ideas a human then decided on); recall is unmeasured since analyst-rejected ideas never reach a human today.
 - **Guardrails**: NeMo Guardrails input rail on every discovered idea before it reaches scoring (`guardrails.py`). No output rails yet.
 - **Human-in-the-loop**: the email gate (ADR-0002), live-verified end to end.
 - **Cost optimization**: `max_tokens` caps everywhere (learned the hard way — an uncapped default 64k-token request 402'd against a low-credit account); `MAX_RESEARCH_STEPS`, `MAX_SEARCH_RESULTS=6`, `MAX_ARTICLE_CHARS=1200` all exist specifically to bound spend/context-growth per run; sequential (not parallel) venture-pipeline execution per run is an explicit cost/concurrency control.
@@ -349,37 +387,39 @@ All share a uniform contract: **structured input context (idea + upstream artifa
 ## 11. Roadmap
 
 ### Immediate next tasks (next session should start here)
-1. Get one real trace into LangSmith or Logfire (just needs a token in `.env`) and take a screenshot — currently the single cheapest way to close the "wired but never verified" observability gap. **Blocked on the user supplying a token.** While at it, decide whether the console's "Tracing: live" badge should honestly read `wiring` until then (§12).
-2. Console deep views: render the `RunEvent` timeline (data + SSE stream already exist and are unconsumed) — the natural next UI milestone now that live metrics flow.
-3. Or jump to the build-squad subgraph (the biggest remaining feature gap) if the user prefers feature depth over UI polish.
+1. Promptfoo: a config covering the Research/Analyst/venture/build prompts, wired into a GitHub Actions job (which also means: finally add a CI workflow at all). The last of the three originally-named LLMOps tools (Braintrust equivalent and LangSmith/Logfire are both now live) still fully missing.
+2. Grow the eval dataset past N=9 and revisit `p2pops-eval`'s honest recall gap (analyst-rejected ideas never reach a human today) — maybe worth a small "spot-check a sample of rejections" flow if the human wants a recall signal.
+3. Real file-tree persistence for build-squad scaffolds (currently DB-JSON-only, readable via the console but not `git`-able) — write `scaffold_files` to an actual directory on disk as a fast follow.
 
 ### Short-term milestones
-- Braintrust: turn `Review.decision` records into a labeled eval dataset; a first offline eval of the Analyst's scoring against human agreement.
-- Promptfoo: a config covering the Research/Analyst/venture prompts, wired into a GitHub Actions job (which also means: finally add a CI workflow at all).
+- Promptfoo CI (see above).
 - Docker Compose for local one-command startup (API + web).
+- Wire `p2pops-eval`'s report to Braintrust's hosted `Eval(...)` if/when a `BRAINTRUST_API_KEY` becomes available — the module is already structured for this.
 
 ### Medium-term milestones
-- Build-squad subgraph: PM → Architect → Engineer (parallel fan-out) → QA reflection loop, turning a `complete` `OpportunityDossier` into an actual scaffolded repo — this is the single biggest remaining feature gap vs. the original full vision.
 - Postgres migration (swap the one `database_url` connection string; schema is already ORM-defined, no rewrite needed).
 - Real deployment: Vercel (web) + a small always-on host for the API/worker.
+- Console per-agent cost view and a real graph-state visualization (beyond the linear event timeline shipped this phase).
 
 ### Long-term vision
 - Cross-run learning: venture agents drawing on a vector store of past `OpportunityDossier`s (RAG over the project's own history), not just per-run evidence.
 - Multi-topic/scheduled discovery runs (currently always manually triggered via POST).
 - Reddit as a second discovery source (PRAW, OAuth) — deferred, not abandoned.
+- Raise `build/scoring.MAX_QA_ROUNDS` past 2 only after re-deriving the fan-out cost math documented next to the constant.
 
 ### Stretch goals
 - OKF-formatted principle library (see §12 below) — small, well-justified, genuinely current (June 2026 spec).
-- A real-time console dashboard rendering the `RunEvent` timeline as an actual visual agent-execution graph, not just a JSON list.
+- A real-time console dashboard rendering the `RunEvent` timeline as an actual visual agent-execution graph, not just a linear list.
 
 ---
 
 ## 12. Technical Debt
 
 ### Known issues
-- **Console "Tracing" badge reads `live`** but no LangSmith/Logfire trace has ever been confirmed against a real dashboard (§7) — a mild overstatement, the mirror image of the stale-badge problem fixed at `aab6f29`. Cheapest honest fix: supply a token and verify a trace; otherwise downgrade the badge to `wiring`.
 - **`data_dir="data"` is CWD-relative** — starting `p2pops-api` from any directory other than the repo root silently creates a fresh, empty database there (observed live: a stray `web/data/protopro.db` from starting the API inside `web/`). Fine for now; an absolute-path or repo-root-anchored default would remove the foot-gun.
-- **`SHORTLIST_THRESHOLD=50` and `MAX_REFINEMENT_ROUNDS=2`** are hardcoded module constants, not configurable — fine for now, explicitly logged as "revisit once there's a dashboard to tune them from" (Analyst) / "a real venture studio kills ideas" (venture, this one is more a design stance than debt).
+- **`SHORTLIST_THRESHOLD=50`, `MAX_REFINEMENT_ROUNDS=2`, `MAX_QA_ROUNDS=2`** are hardcoded module constants, not configurable — fine for now, explicitly logged as "revisit once there's a dashboard to tune them from" (Analyst) / "a real venture studio kills ideas" (venture, design stance) / "fan-out multiplies cost per round, don't raise casually" (build, cost math documented next to the constant).
+- **Build-squad scaffolds are DB-only** — `scaffold_files` content is real and inspectable via the console, but nothing writes it to an actual directory on disk yet; a human wanting to actually start from the scaffold has to copy-paste from the dossier viewer.
+- **`.gitignore` had an unanchored `build/` rule** (paired with `dist/`, meant for Python packaging's top-level build-artifact directory) that silently excluded the entire new `src/p2pops/build/` package from git — caught before committing by `git status` showing the new backend files but not the package itself. Fixed by anchoring both to the repo root (`/build/`, `/dist/`). Worth remembering if any future top-level-sounding directory name is added under `src/`.
 
 ### Temporary implementations (explicitly logged deviations)
 - `Base.metadata.create_all` instead of Alembic migrations (ADR/phase-log-logged deviation from the original "modular monolith" plan) — fine pre-1.0 with a single developer and SQLite; must become Alembic before any real schema change lands on a populated Postgres database.
@@ -403,7 +443,7 @@ All share a uniform contract: **structured input context (idea + upstream artifa
 **Where it does NOT fit this project** (and would be technology-for-its-own-sake if forced in):
 - It is not an orchestration framework — does not touch LangGraph.
 - It is not a database format — `Run`/`Idea`/`Opportunity` are transactional relational records, not curated reference knowledge; OKF-ifying them would be a category error.
-- It is not an eval or observability framework — irrelevant to the Braintrust/Promptfoo/LangSmith gaps.
+- It is not an eval or observability framework — irrelevant to the Braintrust/Promptfoo gap or the (now-closed) LangSmith/Logfire verification gap.
 
 **Where it does genuinely fit**: `venture/principles.py` — the curated library of founder/company patterns (Airbnb, Stripe, Canva, Notion, Duolingo, Figma, Slack, Shopify, Vercel) that the Architect agent cites and the Red Team attacks by documented failure mode — **is** exactly the kind of curated, human-authored, agent-consumed knowledge OKF exists to standardize. Recommendation: **a small, optional future refactor**, not urgent — externalize this library as an OKF-formatted `knowledge/principles/` directory (one markdown file per principle, YAML frontmatter for `key`/`company`/`when_applicable`/`failure_mode`, prose body for the principle itself), loaded at runtime instead of hardcoded as a Python list of Pydantic objects. Benefits: non-engineers could edit/extend the principle library without touching Python; demonstrates deliberate, judgment-based adoption of a brand-new (weeks-old at time of writing) vendor-neutral standard exactly where it fits — which reads to a hiring manager as "tracks the ecosystem and applies judgment," not "chases buzzwords." **Not done yet** — logged here as a well-justified stretch goal (§11), explicitly not force-fit elsewhere.
 
@@ -486,11 +526,15 @@ cd web && pnpm build && pnpm start   # production build
 | `src/p2pops/venture/graph.py` | Venture opportunity StateGraph | Orchestrates evidence→analysis→gates→stress/refine→vision | Invoked per-approved-idea by `runner.execute_venture` |
 | `src/p2pops/venture/scoring.py` | Deterministic ranking + gates | The "code decides, LLM proposes" architectural anchor | Consumed by `venture/graph.py` |
 | `src/p2pops/venture/principles.py` | Curated founder-pattern library | Grounds the Architect agent's proposals in named, arguable precedent | Consumed by `venture/agents.generate_directions` |
-| `src/p2pops/runner.py` | Run lifecycle, owns the checkpointer | The only place that starts/resumes/executes runs and ventures | Called by `api/app.py` and `pipeline.py` |
-| `src/p2pops/db/repository.py` | All SQL | Single place that owns data-access semantics | Used by `runner.py`, `graph.py`, `venture/graph.py`, `api/app.py` |
+| `src/p2pops/build/graph.py` | Build-squad StateGraph | Orchestrates pm→architect→engineer(fan-out)→qa gate→bounded revise | Invoked manually by `runner.execute_build`/`start_build`, ADR-0006 |
+| `src/p2pops/build/scoring.py` | Deterministic QA gate + scaffold targeting | The build-squad half of "code decides, LLM proposes" — path/language are never the LLM's choice | Consumed by `build/graph.py` |
+| `src/p2pops/evals/analyst_eval.py` | Analyst-vs-human agreement report | The first eval, dependency-free (no Braintrust key) | `p2pops-eval` CLI |
+| `src/p2pops/runner.py` | Run lifecycle, owns the checkpointer | The only place that starts/resumes/executes runs, ventures, and builds | Called by `api/app.py`, `pipeline.py`, `build_cli.py` |
+| `src/p2pops/db/repository.py` | All SQL | Single place that owns data-access semantics | Used by `runner.py`, `graph.py`, `venture/graph.py`, `build/graph.py`, `api/app.py` |
 | `src/p2pops/notify.py` | Email HITL delivery | Implements ADR-0002 | Called by `graph.request_review_node` |
 | `src/p2pops/mcp/server.py` | MCP tool server | Makes Research Agent's tools a real, portable MCP service | Connected to by `agents/research.py` via `langchain-mcp-adapters` |
-| `web/src/lib/api.ts` | Server-side client for `/api/v1` | Feeds live pipeline data to the site with timeout + seeded-fallback semantics | Used by hero, showcase, pipeline-stats, console |
+| `web/src/lib/api.ts` | Server-side client for `/api/v1` | Feeds live pipeline data to the site with timeout + seeded-fallback semantics | Used by hero, showcase, pipeline-stats, console, and both deep-view pages |
+| `web/src/app/console/opportunities/[id]/page.tsx` | Opportunity + build dossier viewer | Read-only recruiter-facing view of the full venture + build-squad output | Reads `getOpportunity`/`getBuild` |
 | `web/src/app/globals.css` | Design system tokens | The entire "obsidian & ember" visual identity | Used by every component |
 | `docs/adr/*.md` | Architecture Decision Records | The actual engineering reasoning, not just outcomes | Referenced throughout this document |
 | `implementation-notes.md` | Chronological phase log | Session-by-session build history, kept during development | Predecessor/complement to this file |
@@ -500,7 +544,41 @@ cd web && pnpm build && pnpm start   # production build
 
 ## 15. Session Handoff — READ THIS FIRST
 
-### What was completed in the most recent session (2026-07-06, Phase 2: frontend↔API wiring)
+### What was completed in the most recent session (2026-07-06, Phase 3: observability proof + evals + build-squad + console deep views)
+
+The user supplied `LANGSMITH_API_KEY`/`LOGFIRE_TOKEN` and asked for everything open from the Phase 2 handoff to be done in one pass. Given the size (four separate initiatives, one a brand-new subgraph), this session used `EnterPlanMode` first — two research passes (an Explore agent over `venture/agents.py`/`scoring.py`/test patterns/ADR format, then a Plan agent that stress-tested the build-squad design specifically) before writing any code. The approved plan is preserved at `C:\Users\Dilip\.claude\plans\silly-munching-wilkes.md` on this machine if the reasoning behind a decision below needs more detail than fits here.
+
+1. **Observability verified, not just wired** — the single item blocking on the user was unblocked first. Ran `p2pops-pipeline` live; confirmed via LangSmith's REST API (`/runs/query` against the real session id) that the run's traces landed with matching run IDs/timestamps/node names, and Logfire's `configure()` printed a real working project URL (`https://logfire-us.pydantic.dev/dsharp/starter-project`) with no auth error. Re-confirmed against the build-squad run too (below) — its own node names (`qa`, `route_after_qa`, `mark_needs_revision`) showed up in LangSmith as well. **No code changes** for this item.
+2. **Evals started** (`src/p2pops/evals/analyst_eval.py`, `p2pops-eval` CLI): turns `Review.decision` (already surfaced directly on `Idea.status` as `approved`/`declined` — no join needed) into an agreement-rate + score-comparison report. No `BRAINTRUST_API_KEY` exists, so this is dependency-free rather than force-adopting an unavailable hosted tool. Honest about scope: measures the Analyst's *precision*, not recall (analyst-rejected ideas never reach a human today). New `repo.reviewed_ideas()` helper; `tests/test_evals.py` (3 tests, pure DB aggregation, no LLM/seam needed).
+3. **Build-squad subgraph shipped and live-verified** (`src/p2pops/build/`: `schemas.py`, `agents.py`, `scoring.py`, `graph.py`; new `Build` DB model + repository functions; `runner.execute_build`/`start_build`; `GET/POST /api/v1/builds` + `build` field on `OpportunityDetailOut`; `p2pops-build` CLI; ADR-0006; `tests/test_build.py`, 4 scenarios). Mirrors venture pipeline's every invariant (LLM produces artifacts/code decides, one shared `_structured` seam, bounded honest-failure loop, per-item containment) — full design reasoning in ADR-0006, don't re-derive it. **Critical implementation detail**: `build/agents.py` calls the shared seam via `from ..venture import agents as venture_agents` then `venture_agents._structured(...)` (module-attribute access) — never `from ..venture.agents import _structured` — because the latter's name-binding-at-import-time would silently defeat `monkeypatch.setattr(p2pops.venture.agents, "_structured", fake)` in tests, which would then make real (costly) LLM calls without anyone noticing. Verified this crosses correctly by the test suite passing at all. **Trigger is deliberately CLI/protected-POST only, never a public button** — `/console` is unauthenticated and labeled "Internal · read-only"; a public trigger for a paid LLM pipeline would contradict that. **Live-verified** against the real "TrustLayer SDK" opportunity: PM → 7 features, Architect → 4 components, Engineer scaffolded all 4 (the `scaffold_target()` keyword heuristic picked `main.py`/`schema.sql`/`README.md` correctly, including the fallback case), QA blocked round 1 (2 real critical issues — stub methods that don't call the real API), `revise` correctly re-ran only the 2 named components, QA blocked again round 2, and — `MAX_QA_ROUNDS` exhausted — the build **honestly landed on `needs_revision`**, not a silently-accepted `complete`. This is the build-squad equivalent of venture pipeline's own celebrated "2 honest parks" from Phase 1.5: the bounded-loop design working exactly as intended.
+   - **A real bug was found and fixed while testing offline** (not live): `MAX_QA_ROUNDS` originally set to `1` following the *word* "one revision round" too literally, but `route_after_qa` mirrors venture's `route_after_stress` exactly (`round_index < MAX`), and venture's own convention is "MAX = total rounds," not "MAX = revisions allowed." At `1`, zero revisions would ever fire. Fixed by setting `MAX_QA_ROUNDS = 2` (exactly one revision, matching intent) rather than changing the comparison operator — keeps the routing code identical to venture's, only the constant's value differs. If you ever touch `MAX_REFINEMENT_ROUNDS` or `MAX_QA_ROUNDS`, remember: the constant equals the total attempt count, not the extra-round count.
+4. **Console deep views** (frontend-only, zero new backend surface beyond what build-squad already added): `web/src/app/console/runs/[id]/page.tsx` (event timeline + idea list, from the existing `GET /api/v1/runs/{id}`) and `web/src/app/console/opportunities/[id]/page.tsx` (parses the `OpportunityDossier` JSON — vision/ranking/gates — plus, if a build exists, the `BuildDossier` — plan/architecture/scaffold files as `<details>`/QA verdicts; shows a plain "not yet scaffolded" hint, never a button, when none exists). `web/src/lib/api.ts` gained `getRuns`/`getRun`/`getOpportunity`/`getBuild`. Console's own landing page gained "Recent runs"/"Recent opportunities" lists linking into these, and the stale "build-squad subgraph lands next" copy was fixed.
+5. **Verified live, end to end, both API states**: `pytest` 48/48 (was 37); `p2pops-build` completed live as described above; both new API endpoints and the updated opportunity endpoint returned correct data via curl; both new console routes rendered the real data correctly (`curl` checks matched component names, statuses, event agent names); with the API stopped, the run-detail route correctly `notFound()`s (404, no crash) and the landing page keeps serving its cached shell. `pnpm build`/`pnpm lint` both clean.
+6. Fixed a small pre-existing honesty issue found along the way: the approval email's copy said "the build squad takes it from here," describing the *venture pipeline* (the actual next automatic stage) — now says "the venture pipeline takes it from here," since build-squad is a separate, later, manually-triggered stage.
+
+### Files modified/added this session (Phase 3)
+- **Added (backend)**: `src/p2pops/build/{__init__,schemas,agents,scoring,graph}.py`, `src/p2pops/build_cli.py`, `src/p2pops/evals/{__init__,analyst_eval}.py`, `docs/adr/0006-build-squad-subgraph.md`, `tests/test_build.py`, `tests/test_evals.py`.
+- **Added (frontend)**: `web/src/app/console/runs/[id]/page.tsx`, `web/src/app/console/opportunities/[id]/page.tsx`.
+- **Modified (backend)**: `src/p2pops/db/models.py` (`Build` model), `src/p2pops/db/repository.py` (build + `reviewed_ideas` functions), `src/p2pops/runner.py` (`execute_build`/`start_build`/`get_build_pipeline`), `src/p2pops/api/schemas.py` + `api/app.py` (build endpoints, opportunity handler rewrite, misleading-copy fix), `pyproject.toml` (`p2pops-eval`, `p2pops-build` scripts), `tests/conftest.py` (`make_idea` gained an optional `score` kwarg), `tests/test_api.py` (5 new build-endpoint tests).
+- **Modified (frontend)**: `web/src/lib/api.ts` (new types + helpers), `web/src/app/console/page.tsx` (recent activity lists, copy fix).
+- **Modified (docs)**: `PROJECT_BRAIN.md` (§2–§7, §11, §12, §14, §15), `implementation-notes.md` (Phase 3 entry).
+- **Left behind (needs manual cleanup, unrelated to this session's new code)**: the stray `web/data/protopro.db` from Phase 2 is still there — still safe to delete, still not this session's doing.
+
+### Exact next task for the next session
+Per the current Roadmap (§11): Promptfoo is now the last of the three originally-named LLMOps tools with zero integration (Braintrust-equivalent and LangSmith/Logfire are both live) — a prompt-regression CI config across Research/Analyst/venture/build prompts, which also means finally standing up a GitHub Actions workflow at all. After that: real file-tree persistence for build-squad scaffolds (currently DB-JSON-only — readable in the console, not yet `git`-able), and growing the eval dataset past its current small N.
+
+### Remaining blockers
+None. (LangSmith/Logfire were the last blocked item; both resolved this session.)
+
+### Important implementation details a new session must know
+- **`venture.agents._structured` is now the seam for TWO packages**, not one. Any new module that needs an LLM call (not just `venture/` or `build/`) must call it via module-attribute access on the `venture.agents` module object, never via `from ...venture.agents import _structured`. Get this wrong and tests silently stop being hermetic.
+- **`MAX_QA_ROUNDS` (build) and `MAX_REFINEMENT_ROUNDS` (venture) both mean "total rounds allowed," not "extra rounds beyond the first."** `round_index < MAX` is the shared comparison; get the constant's value right relative to that, not the comparison itself.
+- **The build-squad trigger is intentionally CLI/protected-POST only.** Do not add a frontend button for `POST /api/v1/builds`, even though the endpoint exists — the console's own "Internal · read-only" framing and the project's HITL-first philosophy both depend on no public UI ever spending LLM budget unilaterally.
+- **Everything from the Phase 2 handoff below still applies** (the seeded-fallback contract in `web/src/lib/api.ts`, the `Promise.race`-not-`AbortSignal` timeout reasoning, the `cacheComponents`-not-enabled caching model, the CWD-relative `data_dir` gotcha) — nothing in this phase changed those.
+
+---
+
+### Previous session record (2026-07-06, Phase 2 — kept for context)
 
 1. **Confirmed repo state ahead of the previous handoff**: the console badge fix (previous handoff's task #1) was already committed at `aab6f29` together with this document — do not redo it.
 2. **Wired the frontend to the live API** (the previous handoff's next-highest priority):
@@ -514,17 +592,14 @@ cd web && pnpm build && pnpm start   # production build
 4. **Live verification, both directions**: API up → console strip showed the real 14 runs / 9 ideas / 3 approved / 3 dossiers and the landing page revalidated from the seeded build shell to real DB titles within one ISR cycle. API stopped → console renders "API offline" + em-dash values, landing keeps serving the cached page. `pnpm build` (with backend offline — exercises the fallback at build time), `pnpm lint`, and `uv run pytest` (37/37) all clean. No backend code was touched this session.
 5. **PROJECT_BRAIN.md updated** (§2, §3, §5, §9, §11, §12, §14, §15) and `implementation-notes.md` gained the Phase 2 entry.
 
-### Files modified/added this session (Phase 2)
+#### Files modified/added that session
 - **Added**: `web/src/lib/api.ts`, `web/.env.example`.
 - **Modified**: `web/src/components/hero.tsx`, `web/src/components/showcase.tsx`, `web/src/components/pipeline-stats.tsx`, `web/src/app/console/page.tsx`, `PROJECT_BRAIN.md`, `implementation-notes.md`.
 - **Left behind (needs manual cleanup)**: a stray empty `web/data/protopro.db` — created when the API was accidentally started from inside `web/` (the CWD-relative `data_dir` gotcha, §12). Safe to delete; the real database is `data/protopro.db` at the repo root.
 
-### Exact next task for the next session
-The cheapest high-value move is still **one real observability trace** (LangSmith or Logfire) — but it is **blocked on the user supplying an API token** in `.env`; nothing can be done without it. Ask for the token first. If it isn't available, the two unblocked candidates are, in order of the user's previously expressed engagement: (a) **console deep views** — render the `RunEvent` timeline in the console (the data and the SSE stream already exist and are unconsumed by the UI), or (b) **the build-squad subgraph** (PM → Architect → Engineer fan-out → QA), the biggest remaining feature gap. Also worth an explicit user decision: whether the console's "Tracing: live" badge should read `wiring` until a real trace is confirmed (§12).
-
 ---
 
-### Previous session record (2026-07-06, Phase 1.5 — kept for context)
+### Earlier session record (2026-07-06, Phase 1.5 — kept for context)
 
 1. **Full Phase 1 + venture pipeline** (already committed at `9e8df96` before this session's continuation): async DB layer, email HITL via LangGraph `interrupt()`, FastAPI service, the entire venture pipeline (evidence, 4 parallel agents, deterministic gates/ranking, bounded red-team/refiner loop, product vision synthesis, `OpportunityDossier` persistence).
 2. **This session's work** (committed at `7c79955`, "Add LLM-call resilience layer; fix 5 live bugs; switch Groq default model"):

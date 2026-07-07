@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { getOpportunities, getStats } from "@/lib/api";
+import { getOpportunities, getRuns, getStats } from "@/lib/api";
 import { Wordmark } from "@/components/nav";
 
 // Operations view: metrics must be current, never a stale cached render.
@@ -24,7 +24,7 @@ const MODULES: {
   {
     name: "Orchestration",
     detail:
-      "Supervisor graph routing the Research and Analyst agents; build-squad subgraph lands next.",
+      "Supervisor graph routing Research and Analyst; a second build-squad subgraph (PM/Architect/Engineer/QA) scaffolds completed opportunities on manual trigger.",
     stack: "LangGraph · MCP",
     status: "live",
   },
@@ -135,6 +135,66 @@ async function LiveMetrics() {
   );
 }
 
+async function RecentActivity() {
+  const [runs, opportunities] = await Promise.all([
+    getRuns({ fresh: true }),
+    getOpportunities({ fresh: true }),
+  ]);
+  const recentRuns = (runs ?? []).slice(0, 8);
+  const recentOpportunities = (opportunities ?? []).slice(0, 8);
+
+  return (
+    <div className="mt-14 grid gap-8 lg:grid-cols-2">
+      <div>
+        <p className="mb-4 font-mono text-[11px] uppercase tracking-[0.18em] text-mist-600">Recent runs</p>
+        {recentRuns.length === 0 ? (
+          <p className="text-sm text-mist-600">No runs yet.</p>
+        ) : (
+          <ul className="space-y-2">
+            {recentRuns.map((r) => (
+              <li key={r.id}>
+                <Link
+                  href={`/console/runs/${r.id}`}
+                  className="glass flex items-center justify-between rounded-xl px-4 py-3 text-sm transition-colors hover:border-maroon-700/50"
+                >
+                  <span className="truncate text-mist-200">{r.topic}</span>
+                  <span className="ml-3 shrink-0 font-mono text-[10px] uppercase tracking-[0.1em] text-mist-600">
+                    {r.status}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div>
+        <p className="mb-4 font-mono text-[11px] uppercase tracking-[0.18em] text-mist-600">
+          Recent opportunities
+        </p>
+        {recentOpportunities.length === 0 ? (
+          <p className="text-sm text-mist-600">No opportunities yet.</p>
+        ) : (
+          <ul className="space-y-2">
+            {recentOpportunities.map((o) => (
+              <li key={o.id}>
+                <Link
+                  href={`/console/opportunities/${o.id}`}
+                  className="glass flex items-center justify-between rounded-xl px-4 py-3 text-sm transition-colors hover:border-maroon-700/50"
+                >
+                  <span className="truncate font-mono text-[11px] text-mist-500">{o.id.slice(0, 8)}</span>
+                  <span className="ml-3 shrink-0 font-mono text-[10px] uppercase tracking-[0.1em] text-mist-600">
+                    {o.status}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function ConsolePage() {
   return (
     <div className="grain relative flex min-h-svh flex-col">
@@ -191,10 +251,12 @@ export default function ConsolePage() {
           ))}
         </div>
 
+        <RecentActivity />
+
         <p className="animate-rise mt-14 max-w-lg font-mono text-[11px] leading-relaxed text-mist-600 [animation-delay:480ms]">
-          Metrics above are read live from the pipeline&apos;s run store. Deep
-          views — run timelines, live graph state, per-agent cost, eval
-          dashboards — are next.
+          Metrics above are read live from the pipeline&apos;s run store.
+          Click through a run or opportunity for its full event timeline or
+          dossier. Per-agent cost and eval dashboards are next.
         </p>
       </main>
     </div>

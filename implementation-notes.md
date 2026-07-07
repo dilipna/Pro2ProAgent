@@ -8,6 +8,95 @@
 
 ## Phase log (post-pivot)
 
+### Phase 3 — Observability proof, evals, build-squad subgraph, console deep views (2026-07-06)
+- **Observability verified live** (previously wired but unconfirmed): ran the
+  discovery pipeline for real, then queried LangSmith's REST API
+  (`/runs/query` against the project's real session id) and got back real
+  runs with matching IDs/timestamps/node names. Logfire's `configure()`
+  printed a genuine, working project URL with no auth error. Re-confirmed
+  against the build-squad run below too — no gap remains.
+- **First eval, dependency-free** (`src/p2pops/evals/analyst_eval.py`,
+  `p2pops-eval` CLI): `Review.decision` is already surfaced directly on
+  `Idea.status` as `approved`/`declined` (no join needed) — new
+  `repo.reviewed_ideas()` reads it, and the report computes agreement rate
+  and score comparison, honestly noting it measures precision only (analyst-
+  rejected ideas never reach a human, so recall is unmeasured). No
+  `BRAINTRUST_API_KEY` exists, so this stays local rather than force-adopting
+  an unavailable hosted tool — same judgment call as the OKF stretch-goal
+  writeup. 3 new tests, pure DB aggregation, no LLM/seam involved.
+- **Build-squad subgraph** (`src/p2pops/build/`; ADR-0006): PM → Architect →
+  Engineer (`asyncio.gather` fan-out, one call per component, `return_exceptions=True`
+  so one component's failure can't abort the build) → QA → deterministic
+  `qa_gate` → bounded revise loop (`MAX_QA_ROUNDS=2`, i.e. exactly one
+  revision attempt) → `BuildDossier` persisted on a new `builds` table.
+  Mirrors every venture-pipeline invariant: LLM produces artifacts / code
+  decides (the Engineer never chooses a scaffold file's path or language —
+  `scoring.scaffold_target()` keyword-matches the component's `tech` string
+  and decides that in code), one shared `_structured` seam, honest
+  bounded-loop failure (`needs_revision`, never silently accepted).
+  - New `Build` DB model + repository functions; `runner.execute_build`
+    (blocking, for the CLI) and `runner.start_build` (fire-and-forget, for
+    the API) — split apart after catching a bug where both would have
+    created a duplicate `Build` row for one trigger.
+  - New `p2pops-build <opportunity_id>` CLI (manual trigger only — mirrors
+    `p2pops-pipeline`'s existing CLI-trigger precedent) and a protected
+    `POST /api/v1/builds` (same `require_operator` tier as `POST /api/v1/runs`)
+    for future automation. **No frontend button calls it** — `/console` is
+    unauthenticated and labeled "Internal · read-only," and a public trigger
+    for a paid LLM pipeline would contradict that.
+  - **Import-pattern correctness detail**: `build/agents.py` calls the shared
+    seam via `from ..venture import agents as venture_agents` then
+    `venture_agents._structured(...)` — module-attribute access, not
+    `from ..venture.agents import _structured`. The latter binds a name at
+    import time that `monkeypatch.setattr(p2pops.venture.agents, "_structured", fake)`
+    would not intercept, which would have silently made tests fire real
+    (costly) LLM calls. Verified correct because the offline test suite
+    passes at all.
+  - **A real bug, found offline before any live run**: `MAX_QA_ROUNDS` was
+    first set to `1`, following the English phrase "one revision round" too
+    literally. `route_after_qa` mirrors venture's `route_after_stress`
+    exactly (`round_index < MAX`), and venture's own convention is "MAX =
+    total rounds," not "MAX = extra rounds." At `1`, the revise branch could
+    never fire. Fixed by setting the constant to `2` (matching the
+    convention) rather than changing the comparison — caught by the offline
+    test suite immediately (`test_one_revision_round_then_clean` failed with
+    a clear off-by-one), before it ever reached a live LLM call.
+  - **Live-verified** against the real "TrustLayer SDK" opportunity from
+    Phase 1.5: PM proposed 7 features, Architect designed 4 components,
+    Engineer scaffolded all 4 (`scaffold_target()`'s keyword heuristic chose
+    correctly — `main.py` ×2, `schema.sql`, and a `README.md` fallback for
+    the one component with no matching keyword), QA **blocked** round 1 on 2
+    real critical issues (stub methods that don't call the real API), the
+    `revise` node correctly re-ran only those 2 named components, QA
+    **blocked again** on round 2, and with rounds exhausted the build
+    honestly landed on `needs_revision` — the same "the bounded loop worked,
+    this is a feature not a failure" story as venture pipeline's own 2
+    honest parks in Phase 1.5.
+- **Console deep views**, purely additive to the frontend (zero new backend
+  surface beyond what build-squad already added): `/console/runs/[id]`
+  (event timeline + idea list from the existing run-detail endpoint) and
+  `/console/opportunities/[id]` (parsed `OpportunityDossier` — vision,
+  ranking, gates — plus, when present, the `BuildDossier` — plan,
+  architecture, scaffold files as collapsible `<details>`, QA verdicts; a
+  plain "not yet scaffolded" hint, never a button, when no build exists).
+  `web/src/lib/api.ts` gained `getRuns`/`getRun`/`getOpportunity`/`getBuild`.
+  Console's landing page gained "Recent runs"/"Recent opportunities" lists
+  linking into these, and the stale "build-squad subgraph lands next" copy
+  was corrected.
+- **Fixed a small pre-existing honesty gap found along the way**: the
+  approval email's copy said "the build squad takes it from here," actually
+  describing the *venture pipeline* (the real next automatic stage) — now
+  reads "the venture pipeline takes it from here," since build-squad is a
+  separate, later, manually-triggered stage.
+- **Tests: 48 passing** (was 37: +3 evals, +4 build-squad graph, +5 build API
+  endpoints, -1 net from a helper signature change). `pnpm build`/`pnpm lint`
+  clean; both new console routes verified against real live data via curl,
+  and verified to degrade gracefully (404, not a crash) with the API down.
+- Design work for this phase used `EnterPlanMode` given its size (four
+  separate initiatives, one a brand-new subgraph) — an Explore pass over
+  existing patterns, then a Plan-agent stress-test of the build-squad design
+  specifically, before any code was written.
+
 ### Phase 1 — Run infrastructure, email HITL, venture pipeline (2026-07-06)
 - **DB layer** (`src/p2pops/db/`): async SQLAlchemy 2.0 + aiosqlite. Models:
   `Run`, `RunEvent` (the AgentOps timeline), `Idea`, `Review` (single-use

@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 from ..config import get_settings
 from ..models import AnalyzedIdea
 from .engine import session
-from .models import Idea, Opportunity, Review, Run, RunEvent, utcnow
+from .models import Build, Idea, Opportunity, Review, Run, RunEvent, utcnow
 
 
 # --- Runs -------------------------------------------------------------------
@@ -130,6 +130,19 @@ async def idea_counts() -> dict[str, int]:
         return dict(rows.all())
 
 
+async def reviewed_ideas() -> list[Idea]:
+    """Ideas with a human decision recorded. `record_decision` overwrites
+    `Idea.status` to approved|declined directly, so no join with `reviews`
+    is needed -- these two status values *are* the human label."""
+    async with session() as s:
+        rows = await s.execute(
+            select(Idea)
+            .where(Idea.status.in_(("approved", "declined")))
+            .order_by(Idea.discovered_at)
+        )
+        return list(rows.scalars())
+
+
 # --- Opportunities -------------------------------------------------------------
 
 
@@ -162,6 +175,54 @@ async def list_opportunities(status: str | None = None, limit: int = 50) -> list
         query = select(Opportunity).order_by(Opportunity.created_at.desc()).limit(limit)
         if status:
             query = query.where(Opportunity.status == status)
+        rows = await s.execute(query)
+        return list(rows.scalars())
+
+
+# --- Builds -------------------------------------------------------------------
+
+
+async def create_build(run_id: str, opportunity_id: str) -> Build:
+    async with session() as s:
+        build = Build(run_id=run_id, opportunity_id=opportunity_id)
+        s.add(build)
+        await s.commit()
+        return build
+
+
+async def finish_build(build_id: str, status: str, dossier_json: str) -> None:
+    async with session() as s:
+        build = await s.get(Build, build_id)
+        if build is None:
+            return
+        build.status = status
+        build.dossier = dossier_json
+        build.completed_at = utcnow()
+        await s.commit()
+
+
+async def get_build(build_id: str) -> Build | None:
+    async with session() as s:
+        return await s.get(Build, build_id)
+
+
+async def get_build_for_opportunity(opportunity_id: str) -> Build | None:
+    """Most recent build for this opportunity (Build is append-only)."""
+    async with session() as s:
+        rows = await s.execute(
+            select(Build)
+            .where(Build.opportunity_id == opportunity_id)
+            .order_by(Build.created_at.desc())
+            .limit(1)
+        )
+        return rows.scalars().first()
+
+
+async def list_builds(status: str | None = None, limit: int = 50) -> list[Build]:
+    async with session() as s:
+        query = select(Build).order_by(Build.created_at.desc()).limit(limit)
+        if status:
+            query = query.where(Build.status == status)
         rows = await s.execute(query)
         return list(rows.scalars())
 
