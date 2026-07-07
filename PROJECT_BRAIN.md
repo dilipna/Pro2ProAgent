@@ -8,7 +8,7 @@
 
 ## 1. Project Overview
 
-**Name:** ProToPro ("Problem to Product"). Internal Python package/codename: `p2pops` (from the original working title "P2POps") — kept deliberately; renaming is pure churn with no functional value (see §4 decisions).
+**Name:** ProToPro ("Problem to Product"). Internal Python package/codename: `p2pops` (from the original working title "P2POps") — kept deliberately; renaming is pure churn with no functional value (see §10's decision log).
 
 **Elevator pitch:** ProToPro is an autonomous product-discovery company run by AI agents. It listens for real, recurring pain points across developer communities (Hacker News today; Reddit deferred), validates each one through a guardrailed multi-agent analysis pipeline, pauses for a human's yes/no over email, and — on approval — runs the idea through a second multi-agent "venture pipeline" that produces evidence-grounded market analysis, a ranked set of solution directions, adversarial stress-testing, and a complete product vision. Two independent adversarial gates can and do kill weak ideas honestly (observed live, see §15).
 
@@ -360,8 +360,8 @@ Runs manually (CLI `p2pops-build <opportunity_id>`, or protected `POST /api/v1/b
 - **Design philosophy**: "obsidian & ember" — a black stage with one glossy maroon signal color, explicitly designed to avoid the generic "AI startup template" look. Full rationale in ADR-0001.
 - **Palette**: ink/mist/maroon token scales defined in `web/src/app/globals.css` (`--color-ink-950` through `--color-maroon-200`), plus `glass`, `ember-gloss`, and `grain` utility classes.
 - **Typography**: Inter (UI), Instrument Serif italic (editorial/display moments — e.g., the word "Products" in the hero), JetBrains Mono (data/labels), all via `next/font`.
-- **Dashboard vision**: the `/console` page is the *current* realization of the "recruiter-facing operations proof" idea — a module grid with live/wiring status per subsystem (Orchestration, Runs, Guardrails, Human gate, Tracing, Evaluations), plus a live run-store metrics strip (runs / ideas / approvals / dossiers, rendered force-dynamic with an explicit API connected/offline indicator). **Still missing the deep views** — run timelines, live graph state, per-agent cost — even though the `RunEvent` data and SSE stream already exist server-side; that's the natural next UI milestone.
-- **Components**: `Nav` (with the deliberately discreet Console entry, top-right), `Hero` (CSS-animated, live discovery ticker), `Showcase` (real pipeline-derived case cards), `Method` (5-stage agent production line), `PipelineStats`, `Footer`, `Reveal` (the scroll-triggered motion primitive — deliberately *not* used above the fold, per ADR-0003).
+- **Dashboard vision**: the `/console` page is the *current* realization of the "recruiter-facing operations proof" idea — a module grid with live/wiring status per subsystem (Orchestration, Runs, Guardrails, Human gate, Tracing, Evaluations), a live run-store metrics strip (runs / ideas / approvals / dossiers, rendered force-dynamic with an explicit API connected/offline indicator), and "Recent runs"/"Recent opportunities" lists linking into two read-only deep-view pages: `/console/runs/[id]` (the full `RunEvent` timeline) and `/console/opportunities/[id]` (the parsed `OpportunityDossier` — vision, ranking, gates — plus any `BuildDossier` scaffold). **Still missing**: a per-agent cost view and a real visual graph-state representation (today's timeline is a linear list, not a graph) — that's the natural next UI milestone.
+- **Components**: `Nav` (with the deliberately discreet Console entry, top-right), `Hero` (CSS-animated, live discovery ticker), `Showcase` (real pipeline-derived case cards), `Method` (5-stage agent production line), `PipelineStats`, `Footer`, `Reveal` (the scroll-triggered motion primitive — deliberately *not* used above the fold, per ADR-0003); the console's run/opportunity detail pages are plain server components, no client-side interactivity needed for a read-only view.
 - **Animations**: CSS-only for anything above the fold (`animate-rise` keyframes with staggered `animation-delay`) — a real bug (hero content invisible until JS hydration) was found and fixed by this exact rule. Below the fold, `Reveal` uses the `motion` library's `whileInView`.
 - **User flow**: land on `/` → read the hero/ticker → scroll through Showcase/Method/Stats → optionally click the quiet Console pill for the engineering view. No authenticated user flow exists (no login, no accounts) — the whole site is public-read, single-operator-controlled.
 
@@ -383,6 +383,9 @@ Runs manually (CLI `p2pops-build <opportunity_id>`, or protected `POST /api/v1/b
 | Single retry seam (`resilience.with_retry`), `max_retries=0` on all chat clients | 2026-07-06 | Two uncoordinated retry layers (SDK's own + ours) were observed stacking unpredictable multi-minute waits live | Rely on each SDK's built-in retry | One more module to maintain, but now the *only* place retry policy is decided |
 | Status-code-first error classification, with two named exceptions (413 wording collision, `tool_use_failed`/`json_validate_failed`) | 2026-07-06 | Both exceptions were *observed live*, not theorized — text-only classification would have gotten both wrong in opposite directions | Match on error message text alone | A slightly more complex classifier, fully unit-tested (9 tests) |
 | `p2pops` package name kept despite `ProToPro` brand | 2026-07-05 | Renaming is pure churn, no user-visible value pre-publish | Rename to `protopro` | Minor internal/external naming mismatch, documented |
+| Build-squad trigger is CLI/protected-POST only, no public UI button | 2026-07-06 | `/console` is unauthenticated and labeled "Internal · read-only"; a public button would let any visitor spend LLM budget, contradicting the HITL-first philosophy | A "scaffold this" button on the opportunity page | One more manual step for the operator (running a CLI command) |
+| Build-squad fan-out via `asyncio.gather`, not LangGraph `Send` | 2026-07-06 | Venture's own 4-way fan-out already uses fixed named nodes, not `Send`; introducing `Send` would add a second orchestration primitive (plus `Annotated` reducer fields) for a bounded, non-recursive fan-out that doesn't need it | LangGraph `Send`/map-reduce | None significant — `return_exceptions=True` still gives per-component failure containment |
+| `MAX_QA_ROUNDS=2` (not 1), same "total rounds" convention as `MAX_REFINEMENT_ROUNDS` | 2026-07-06 | Setting it to 1 (following "one revision round" literally) was tried first and caught by the offline test suite as a real off-by-one — `round_index < MAX` never allows a revision at `MAX=1` | Change the comparison operator instead of the constant | Keeps `route_after_qa` identical in shape to venture's `route_after_stress`, only the constant differs |
 
 ---
 
@@ -474,7 +477,7 @@ ANTHROPIC_API_KEY=
 OPENROUTER_API_KEY=
 GROQ_API_KEY=                  # currently the only funded provider
 
-# --- Observability (never yet verified against a live dashboard) ---
+# --- Observability (verified live 2026-07-06 via LangSmith REST API + Logfire auth) ---
 LANGSMITH_API_KEY=
 LANGSMITH_PROJECT=p2pops
 LOGFIRE_TOKEN=
@@ -497,12 +500,14 @@ Note: **blank values are safe** — `config.py`'s `_blank_to_none` validator nor
 ### Commands
 ```bash
 # Backend
-uv run pytest                        # 37 tests
+uv run pytest                        # 48 tests
 uv run p2pops                        # bootstrap check (one LLM call)
 uv run p2pops-research "<topic>"     # Research Agent standalone
 uv run p2pops-pipeline "<topic>"     # full discovery pipeline, one CLI run
 uv run p2pops-api                    # FastAPI server, http://localhost:8000
 uv run p2pops-mcp-server             # MCP server standalone (stdio)
+uv run p2pops-eval                   # Analyst-vs-human agreement report
+uv run p2pops-build <opportunity_id> # scaffold one complete opportunity (build-squad)
 
 # Frontend
 cd web && pnpm dev                   # http://localhost:3000
@@ -537,6 +542,7 @@ cd web && pnpm build && pnpm start   # production build
 | `src/p2pops/mcp/server.py` | MCP tool server | Makes Research Agent's tools a real, portable MCP service | Connected to by `agents/research.py` via `langchain-mcp-adapters` |
 | `web/src/lib/api.ts` | Server-side client for `/api/v1` | Feeds live pipeline data to the site with timeout + seeded-fallback semantics | Used by hero, showcase, pipeline-stats, console, and both deep-view pages |
 | `web/src/app/console/opportunities/[id]/page.tsx` | Opportunity + build dossier viewer | Read-only recruiter-facing view of the full venture + build-squad output | Reads `getOpportunity`/`getBuild` |
+| `web/src/app/console/runs/[id]/page.tsx` | Run event timeline viewer | Renders the AgentOps `RunEvent` timeline the console previously only linked to via raw API | Reads `getRun` |
 | `web/src/app/globals.css` | Design system tokens | The entire "obsidian & ember" visual identity | Used by every component |
 | `docs/adr/*.md` | Architecture Decision Records | The actual engineering reasoning, not just outcomes | Referenced throughout this document |
 | `implementation-notes.md` | Chronological phase log | Session-by-session build history, kept during development | Predecessor/complement to this file |
