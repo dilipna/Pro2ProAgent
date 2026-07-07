@@ -5,12 +5,12 @@ from p2pops.db.engine import dispose_engine, init_db
 from p2pops.models import AnalyzedIdea
 
 
-def make_idea(status: str = "shortlisted", title: str = "Test problem") -> AnalyzedIdea:
+def make_idea(status: str = "shortlisted", title: str = "Test problem", score: int = 80) -> AnalyzedIdea:
     return AnalyzedIdea(
         title=title,
         description="A test description",
         source_url="https://example.com",
-        score=80,
+        score=score,
         reasoning="Looks promising",
         status=status,
     )

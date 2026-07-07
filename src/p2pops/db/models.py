@@ -100,6 +100,28 @@ class Opportunity(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
 
+class Build(Base):
+    """One build-squad run for a `complete` Opportunity.
+
+    `run_id` is carried (not just `opportunity_id`) so build-squad graph
+    nodes can log events the same way every other stage does -- the
+    AgentOps timeline is a Run-scoped concept in this codebase, same as
+    `Opportunity`. Append-only like Opportunity/Idea: a fresh
+    `p2pops-build` run always inserts a new row rather than upserting one.
+    """
+
+    __tablename__ = "builds"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    opportunity_id: Mapped[str] = mapped_column(ForeignKey("opportunities.id"), index=True)
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"), index=True)
+    # scaffolding | complete | needs_revision | failed
+    status: Mapped[str] = mapped_column(String(20), default="scaffolding", index=True)
+    dossier: Mapped[str | None] = mapped_column(Text, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+
 class Review(Base):
     """A single-use human decision token for one shortlisted idea.
 

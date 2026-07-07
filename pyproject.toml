@@ -36,6 +36,8 @@ p2pops-research = "p2pops.agents.research:main"
 p2pops-mcp-server = "p2pops.mcp.server:main"
 p2pops-pipeline = "p2pops.pipeline:main"
 p2pops-api = "p2pops.api.app:main"
+p2pops-eval = "p2pops.evals.analyst_eval:main"
+p2pops-build = "p2pops.build_cli:main"
 
 [build-system]
 requires = ["uv_build>=0.11.23,<0.12.0"]

@@ -40,6 +40,47 @@ export interface ApiOpportunity {
   completed_at: string | null;
 }
 
+export interface ApiBuild {
+  id: string;
+  opportunity_id: string;
+  run_id: string;
+  status: string;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface ApiBuildDetail extends ApiBuild {
+  dossier: string | null; // full BuildDossier JSON
+}
+
+export interface ApiOpportunityDetail extends ApiOpportunity {
+  dossier: string | null; // full OpportunityDossier JSON
+  build: ApiBuild | null;
+}
+
+export interface ApiEvent {
+  id: string;
+  agent: string;
+  event_type: string;
+  message: string;
+  duration_ms: number | null;
+  created_at: string;
+}
+
+export interface ApiRun {
+  id: string;
+  topic: string;
+  status: string;
+  error: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface ApiRunDetail extends ApiRun {
+  events: ApiEvent[];
+  ideas: ApiIdea[];
+}
+
 export interface ApiStats {
   runs: number;
   ideas_by_status: Record<string, number>;
@@ -87,4 +128,20 @@ export function getOpportunities(opts?: GetOptions): Promise<ApiOpportunity[] | 
 
 export function getStats(opts?: GetOptions): Promise<ApiStats | null> {
   return get<ApiStats>("/api/v1/stats", opts);
+}
+
+export function getRuns(opts?: GetOptions): Promise<ApiRun[] | null> {
+  return get<ApiRun[]>("/api/v1/runs", opts);
+}
+
+export function getRun(id: string, opts?: GetOptions): Promise<ApiRunDetail | null> {
+  return get<ApiRunDetail>(`/api/v1/runs/${id}`, opts);
+}
+
+export function getOpportunity(id: string, opts?: GetOptions): Promise<ApiOpportunityDetail | null> {
+  return get<ApiOpportunityDetail>(`/api/v1/opportunities/${id}`, opts);
+}
+
+export function getBuild(id: string, opts?: GetOptions): Promise<ApiBuildDetail | null> {
+  return get<ApiBuildDetail>(`/api/v1/builds/${id}`, opts);
 }

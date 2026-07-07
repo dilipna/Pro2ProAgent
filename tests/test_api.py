@@ -74,6 +74,70 @@ async def test_create_run_requires_token_when_configured(client, monkeypatch):
         get_settings.cache_clear()
 
 
+async def test_opportunity_detail_includes_build_when_present(client):
+    run = await repo.create_run("t")
+    idea = await repo.save_idea(make_idea("approved"), run_id=run.id)
+    opportunity = await repo.create_opportunity(run.id, idea.id)
+    await repo.finish_opportunity(opportunity.id, "complete", '{"status": "complete"}')
+
+    # No build yet.
+    detail = (await client.get(f"/api/v1/opportunities/{opportunity.id}")).json()
+    assert detail["status"] == "complete"
+    assert detail["build"] is None
+
+    build = await repo.create_build(run.id, opportunity.id)
+    await repo.finish_build(build.id, "complete", '{"status": "complete"}')
+
+    detail = (await client.get(f"/api/v1/opportunities/{opportunity.id}")).json()
+    assert detail["build"]["id"] == build.id
+    assert detail["build"]["status"] == "complete"
+
+    assert (await client.get("/api/v1/opportunities/nope")).status_code == 404
+
+
+async def test_get_build_detail_and_404(client):
+    run = await repo.create_run("t")
+    idea = await repo.save_idea(make_idea("approved"), run_id=run.id)
+    opportunity = await repo.create_opportunity(run.id, idea.id)
+    build = await repo.create_build(run.id, opportunity.id)
+    await repo.finish_build(build.id, "needs_revision", '{"status": "needs_revision"}')
+
+    detail = (await client.get(f"/api/v1/builds/{build.id}")).json()
+    assert detail["status"] == "needs_revision"
+    assert detail["dossier"] == '{"status": "needs_revision"}'
+
+    assert (await client.get("/api/v1/builds/nope")).status_code == 404
+
+
+async def test_create_build_rejects_incomplete_opportunity(client):
+    run = await repo.create_run("t")
+    idea = await repo.save_idea(make_idea("approved"), run_id=run.id)
+    opportunity = await repo.create_opportunity(run.id, idea.id)  # still "validating"
+
+    resp = await client.post("/api/v1/builds", json={"opportunity_id": opportunity.id})
+    assert resp.status_code == 400
+
+    assert (await client.post("/api/v1/builds", json={"opportunity_id": "nope"})).status_code == 404
+
+
+async def test_create_build_starts_for_complete_opportunity(client, monkeypatch):
+    # Don't launch the real build-squad graph in an API test -- just
+    # confirm the endpoint validates and delegates to runner.start_build.
+    run = await repo.create_run("t")
+    idea = await repo.save_idea(make_idea("approved"), run_id=run.id)
+    opportunity = await repo.create_opportunity(run.id, idea.id)
+    await repo.finish_opportunity(opportunity.id, "complete", '{"status": "complete"}')
+
+    async def fake_start_build(opportunity_id: str):
+        return await repo.create_build(run.id, opportunity_id)
+
+    monkeypatch.setattr(runner, "start_build", fake_start_build)
+
+    resp = await client.post("/api/v1/builds", json={"opportunity_id": opportunity.id})
+    assert resp.status_code == 202
+    assert resp.json()["opportunity_id"] == opportunity.id
+
+
 async def test_blank_api_token_in_env_means_open_not_locked(client, monkeypatch):
     """`API_TOKEN=` (blank) in .env must mean unset, not a literal empty
     secret -- regression test for the bug where every request was silently

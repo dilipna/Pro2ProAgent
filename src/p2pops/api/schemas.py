@@ -61,8 +61,28 @@ class OpportunityOut(BaseModel):
     completed_at: datetime | None
 
 
+class BuildCreate(BaseModel):
+    opportunity_id: str
+
+
+class BuildOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    opportunity_id: str
+    run_id: str
+    status: str
+    created_at: datetime
+    completed_at: datetime | None
+
+
+class BuildDetailOut(BuildOut):
+    dossier: str | None  # full BuildDossier JSON
+
+
 class OpportunityDetailOut(OpportunityOut):
     dossier: str | None  # full OpportunityDossier JSON
+    build: BuildOut | None = None
 
 
 class StatsOut(BaseModel):
