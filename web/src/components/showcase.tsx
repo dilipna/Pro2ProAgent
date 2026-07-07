@@ -1,4 +1,5 @@
-import { CASES, type CaseStatus } from "@/lib/cases";
+import { getIdeas } from "@/lib/api";
+import { CASES, type CaseStatus, type CaseStudy } from "@/lib/cases";
 import { Reveal } from "./reveal";
 
 const STATUS_LABEL: Record<CaseStatus, string> = {
@@ -6,6 +7,49 @@ const STATUS_LABEL: Record<CaseStatus, string> = {
   building: "In build",
   shipped: "Shipped",
 };
+
+function sourceLabel(url: string): string {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, "");
+    return host.endsWith("ycombinator.com") || host.endsWith("algolia.com")
+      ? "Hacker News"
+      : host;
+  } catch {
+    return "discovery";
+  }
+}
+
+function clamp(text: string, max = 240): string {
+  return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`;
+}
+
+/**
+ * Top pipeline-validated ideas (analyst-shortlisted or human-approved),
+ * or the seeded cases when the API is down or has too few to fill the
+ * grid — three cards or none, a partial row reads as broken.
+ */
+async function loadCases(): Promise<CaseStudy[]> {
+  const ideas = await getIdeas();
+  const validated = (ideas ?? []).filter(
+    (idea) => idea.status === "approved" || idea.status === "shortlisted",
+  );
+  if (validated.length < 3) return CASES;
+  return [...validated]
+    .sort(
+      (a, b) =>
+        (b.score ?? 0) - (a.score ?? 0) ||
+        Number(b.status === "approved") - Number(a.status === "approved"),
+    )
+    .slice(0, 3)
+    .map((idea, i) => ({
+      id: `PTP-${String(i + 1).padStart(3, "0")}`,
+      title: idea.title,
+      insight: clamp(idea.description),
+      score: idea.score ?? 0,
+      source: sourceLabel(idea.source_url),
+      status: "validated" as const,
+    }));
+}
 
 function ScoreMark({ score }: { score: number }) {
   return (
@@ -18,7 +62,8 @@ function ScoreMark({ score }: { score: number }) {
   );
 }
 
-export function Showcase() {
+export async function Showcase() {
+  const cases = await loadCases();
   return (
     <section id="showcase" className="relative border-t hairline">
       <div className="mx-auto max-w-6xl px-6 py-28">
@@ -42,7 +87,7 @@ export function Showcase() {
         </Reveal>
 
         <div className="mt-14 grid gap-5 md:grid-cols-3">
-          {CASES.map((c, i) => (
+          {cases.map((c, i) => (
             <Reveal key={c.id} delay={i * 0.08}>
               <article className="glass group relative flex h-full flex-col rounded-2xl p-7 transition-all duration-300 hover:border-maroon-700/50 hover:shadow-ember-sm">
                 <div className="flex items-center justify-between">

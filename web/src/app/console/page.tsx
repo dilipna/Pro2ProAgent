@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { getOpportunities, getStats } from "@/lib/api";
 import { Wordmark } from "@/components/nav";
+
+// Operations view: metrics must be current, never a stale cached render.
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Operations Console — ProToPro",
@@ -78,6 +82,59 @@ function StatusDot({ status }: { status: ModuleStatus }) {
   );
 }
 
+async function LiveMetrics() {
+  const [stats, opportunities] = await Promise.all([
+    getStats({ fresh: true }),
+    getOpportunities({ fresh: true }),
+  ]);
+  const connected = stats !== null;
+  const metrics = [
+    { label: "discovery runs", value: stats ? String(stats.runs) : "—" },
+    { label: "ideas analyzed", value: stats ? String(stats.ideas_total) : "—" },
+    {
+      label: "human-approved",
+      value: stats ? String(stats.ideas_by_status["approved"] ?? 0) : "—",
+    },
+    {
+      label: "opportunity dossiers",
+      value: opportunities ? String(opportunities.length) : "—",
+    },
+  ];
+
+  return (
+    <div className="animate-rise glass mt-12 rounded-2xl p-6 [animation-delay:60ms]">
+      <div className="flex items-center justify-between">
+        <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-mist-600">
+          Live from the run store
+        </p>
+        {connected ? (
+          <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.14em] text-mist-500">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-maroon-300" />
+            API connected
+          </span>
+        ) : (
+          <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.14em] text-mist-600">
+            <span className="h-1.5 w-1.5 rounded-full border border-mist-600" />
+            API offline
+          </span>
+        )}
+      </div>
+      <div className="mt-6 grid grid-cols-2 gap-6 md:grid-cols-4">
+        {metrics.map((m) => (
+          <div key={m.label} className="flex flex-col gap-1.5">
+            <span className="font-mono text-3xl tracking-tight text-mist-50">
+              {m.value}
+            </span>
+            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-mist-600">
+              {m.label}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function ConsolePage() {
   return (
     <div className="grain relative flex min-h-svh flex-col">
@@ -111,6 +168,8 @@ export default function ConsolePage() {
           </p>
         </div>
 
+        <LiveMetrics />
+
         <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {MODULES.map((m, i) => (
             <article
@@ -133,8 +192,9 @@ export default function ConsolePage() {
         </div>
 
         <p className="animate-rise mt-14 max-w-lg font-mono text-[11px] leading-relaxed text-mist-600 [animation-delay:480ms]">
-          Deep views — run timelines, live graph state, per-agent cost, eval
-          dashboards — connect here as the public API lands (Phase 1).
+          Metrics above are read live from the pipeline&apos;s run store. Deep
+          views — run timelines, live graph state, per-agent cost, eval
+          dashboards — are next.
         </p>
       </main>
     </div>

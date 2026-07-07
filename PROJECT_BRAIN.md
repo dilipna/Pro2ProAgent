@@ -39,8 +39,8 @@
 
 **Frontend** (`web/`, Next.js 16 + TypeScript + Tailwind v4 + Motion, pnpm):
 - A fully custom-designed public landing page ("obsidian & ember" design system) telling the problem→product story, with a live discovery ticker seeded from real pipeline output.
-- A discreet `/console` operations page for recruiters, showing pipeline module status.
-- **Currently static/seeded, not wired to the live backend API** — see §3 and §12.
+- A discreet `/console` operations page for recruiters, showing pipeline module status plus a live run-store metrics strip.
+- **Wired to the live backend API** (Phase 2): a server-side API client (`web/src/lib/api.ts`) feeds the hero ticker, Showcase, pipeline stats, and console metrics from `/api/v1/*`, with the seeded content retained as an automatic fallback whenever the API is unreachable — the public site never breaks because the backend is down.
 
 **Docs**: `docs/adr/` (5 ADRs, the actual engineering decision record), `implementation-notes.md` (a chronological phase log kept during development).
 
@@ -51,7 +51,6 @@
 - Test suite (37 tests) covers unit logic (scoring, resilience classification), integration (repository, hermetic ASGI API tests), and full offline graph execution (the venture pipeline's entire happy/rejection/parking paths run for real, with only the LLM call substituted) — a good testing pyramid.
 
 ### Weaknesses / gaps (see §3 and §12 for the full itemized list)
-- Frontend is disconnected from the live backend — the console shows static "live/wiring" labels that are now **incorrect** (Runs and Human gate are actually live; only Evaluations is genuinely still missing).
 - No Braintrust, no Promptfoo — two of the originally-named stack tools are not integrated at all.
 - No Docker/Compose, no CI/CD pipeline, no deployment.
 - No Reddit source (deferred by explicit user choice, HN-only).
@@ -66,15 +65,14 @@
 - Phase 0.5: web foundation, design system, landing page, console shell.
 - Phase 1: async DB layer, email HITL gate, FastAPI service, venture pipeline (all agents, scoring, gates, dossier).
 - Phase 1.5: Groq provider integration, full LLM-call resilience layer, 5 real bugs found/fixed via live iteration, first fully clean live run of the entire chain including 2 honest parks and 1 complete product vision.
-- Git history: 4 commits, clean working tree as of last commit (`7c79955`).
+- Console status badges corrected (Runs, Human gate → `live`; committed at `aab6f29` alongside this document's creation).
+- Phase 2: frontend wired to the live API — server-side client with timeout + seeded fallback, ISR on the landing page, force-dynamic console with a live metrics strip. Verified live in both the API-up and API-down states.
 
 ### In Progress / Partially Implemented
-- **Observability**: LangSmith and Logfire are fully *wired* in code (`telemetry.py`) but **no API token has ever been supplied for either** — meaning no trace has ever actually been confirmed to land in a LangSmith or Logfire dashboard. Local Logfire instrumentation (Pydantic validation spans) is visible in logs regardless.
-- **Frontend↔backend integration**: the API exists and works; the Next.js app does not call it yet. Showcase content is hand-seeded TypeScript (`web/src/lib/cases.ts`), not live-fetched.
-- **Console accuracy**: two of six module status badges are stale (see §12).
+- **Observability**: LangSmith and Logfire are fully *wired* in code (`telemetry.py`) but **no API token has ever been supplied for either** — meaning no trace has ever actually been confirmed to land in a LangSmith or Logfire dashboard. Local Logfire instrumentation (Pydantic validation spans) is visible in logs regardless. (Related honesty note: the console's "Tracing" badge reads `live`, which slightly overstates this — see §12.)
+- **Console depth**: the live metrics strip is real, but run timelines / graph state / per-agent cost views are still not rendered (the `RunEvent` data and SSE stream exist and are unconsumed by the UI).
 
 ### Planned (explicitly discussed, not started)
-- Public API endpoints serving the web app from the real run/opportunity data.
 - Build-squad subgraph (PM → Architect → Engineer fan-out → QA) for turning an approved *venture opportunity* into actual scaffold code — note this is a different, not-yet-built stage beyond the venture pipeline's product-vision output.
 - Evals (Braintrust datasets from human review decisions) and prompt regression testing (Promptfoo in CI).
 - Deployment (Docker Compose locally, then a real URL — Vercel + a small Python host).
@@ -89,7 +87,7 @@
 - Nothing is currently blocked. (Historical note: Anthropic-direct and OpenRouter both ran out of credit/balance during development; Groq is the working live provider as of this writing, see §7 and ADR-0005.)
 
 ### Overall completion estimate
-Roughly **60–65% of a "flagship" version** of this project (discovery + validation + human gate + venture synthesis + resilience, all live-verified) vs. the further-out vision (build-squad code generation, evals-in-CI, deployed public product, frontend fully live-wired). As a *portfolio piece demonstrating LLMOps/AgentOps engineering maturity*, the backend is already strong; the biggest remaining lever for interview impact is wiring the frontend to real data and adding the evals/observability proof (Braintrust/Promptfoo/a real LangSmith trace screenshot).
+Roughly **65–70% of a "flagship" version** of this project (discovery + validation + human gate + venture synthesis + resilience + a live-wired frontend, all live-verified) vs. the further-out vision (build-squad code generation, evals-in-CI, deployed public product). As a *portfolio piece demonstrating LLMOps/AgentOps engineering maturity*, the backend and the live site are now both strong; the biggest remaining levers for interview impact are the evals/observability proof (Braintrust/Promptfoo/a real LangSmith trace screenshot) and the build-squad subgraph.
 
 ---
 
@@ -195,7 +193,7 @@ Two distinct, deliberately different memory systems — do not conflate them:
 | Email | Resend (HTTP) / console fallback | Live (console adapter used in all testing so far) |
 | Observability | LangSmith, Pydantic Logfire | Wired, **not yet verified against real dashboards** (no tokens supplied) |
 | Evals | Braintrust, Promptfoo | **Not integrated** |
-| Frontend | Next.js 16, Tailwind v4, Motion | Live, static content |
+| Frontend | Next.js 16, Tailwind v4, Motion | Live, wired to the API (seeded fallback when offline) |
 | Package mgmt | `uv` (Python), `pnpm` (Node) | — |
 
 ### Design patterns in use
@@ -227,8 +225,8 @@ Two distinct, deliberately different memory systems — do not conflate them:
 | Venture opportunity pipeline | Done, live | 4 parallel agents + architect + red team + refiner + strategist | All venture/ agents | Persist evidence retrieval as reusable context across ideas | High |
 | Deterministic scoring/gates | Done, tested | `venture/scoring.py` | — (code) | Tune weights against real outcomes once there's a track record | Medium |
 | LLM-call resilience | Done, tested | `resilience.py` | All agents | Extend to `llm.py`'s `complete()` | Low |
-| Public landing page | Done, live (static content) | Next.js | — | Wire to live API | High |
-| Operations console | Done, live (stale status labels) | Next.js | — | Fix stale badges; wire real metrics | High |
+| Public landing page | Done, live-wired (ISR, seeded fallback) | Next.js + `/api/v1` | — | Opportunity dossier detail pages | Medium |
+| Operations console | Done, live metrics strip (force-dynamic) | Next.js + `/api/v1` | — | Run timelines / graph view from `RunEvent` + SSE | High |
 | Build-squad code generation | **Not started** | — | PM/Architect/Engineer/QA (planned) | Whole new subgraph | High (biggest remaining "wow" feature) |
 | Evals (Braintrust) | **Not started** | — | — | Turn human review decisions into eval datasets | Medium |
 | Prompt regression CI (Promptfoo) | **Not started** | — | — | GitHub Actions job | Medium |
@@ -322,7 +320,7 @@ All share a uniform contract: **structured input context (idea + upstream artifa
 - **Design philosophy**: "obsidian & ember" — a black stage with one glossy maroon signal color, explicitly designed to avoid the generic "AI startup template" look. Full rationale in ADR-0001.
 - **Palette**: ink/mist/maroon token scales defined in `web/src/app/globals.css` (`--color-ink-950` through `--color-maroon-200`), plus `glass`, `ember-gloss`, and `grain` utility classes.
 - **Typography**: Inter (UI), Instrument Serif italic (editorial/display moments — e.g., the word "Products" in the hero), JetBrains Mono (data/labels), all via `next/font`.
-- **Dashboard vision**: the `/console` page is the *current* realization of the "recruiter-facing operations proof" idea — a module grid with live/wiring status per subsystem (Orchestration, Runs, Guardrails, Human gate, Tracing, Evaluations). **Not yet a real dashboard** with live metrics, run timelines, or graph visualizations — that's the natural next UI milestone once the API is wired in.
+- **Dashboard vision**: the `/console` page is the *current* realization of the "recruiter-facing operations proof" idea — a module grid with live/wiring status per subsystem (Orchestration, Runs, Guardrails, Human gate, Tracing, Evaluations), plus a live run-store metrics strip (runs / ideas / approvals / dossiers, rendered force-dynamic with an explicit API connected/offline indicator). **Still missing the deep views** — run timelines, live graph state, per-agent cost — even though the `RunEvent` data and SSE stream already exist server-side; that's the natural next UI milestone.
 - **Components**: `Nav` (with the deliberately discreet Console entry, top-right), `Hero` (CSS-animated, live discovery ticker), `Showcase` (real pipeline-derived case cards), `Method` (5-stage agent production line), `PipelineStats`, `Footer`, `Reveal` (the scroll-triggered motion primitive — deliberately *not* used above the fold, per ADR-0003).
 - **Animations**: CSS-only for anything above the fold (`animate-rise` keyframes with staggered `animation-delay`) — a real bug (hero content invisible until JS hydration) was found and fixed by this exact rule. Below the fold, `Reveal` uses the `motion` library's `whileInView`.
 - **User flow**: land on `/` → read the hero/ticker → scroll through Showcase/Method/Stats → optionally click the quiet Console pill for the engineering view. No authenticated user flow exists (no login, no accounts) — the whole site is public-read, single-operator-controlled.
@@ -351,9 +349,9 @@ All share a uniform contract: **structured input context (idea + upstream artifa
 ## 11. Roadmap
 
 ### Immediate next tasks (next session should start here)
-1. Fix the console's stale status badges (`web/src/app/console/page.tsx`): "Runs" and "Human gate" should read `live`, not `wiring` — they are fully built and live-verified. Trivial, high-value-per-minute fix.
-2. Get one real trace into LangSmith or Logfire (just needs a token in `.env`) and take a screenshot — currently the single cheapest way to close the "wired but never verified" observability gap.
-3. Wire the frontend's Showcase/console to the real `/api/v1/*` endpoints instead of static seed data.
+1. Get one real trace into LangSmith or Logfire (just needs a token in `.env`) and take a screenshot — currently the single cheapest way to close the "wired but never verified" observability gap. **Blocked on the user supplying a token.** While at it, decide whether the console's "Tracing: live" badge should honestly read `wiring` until then (§12).
+2. Console deep views: render the `RunEvent` timeline (data + SSE stream already exist and are unconsumed) — the natural next UI milestone now that live metrics flow.
+3. Or jump to the build-squad subgraph (the biggest remaining feature gap) if the user prefers feature depth over UI polish.
 
 ### Short-term milestones
 - Braintrust: turn `Review.decision` records into a labeled eval dataset; a first offline eval of the Analyst's scoring against human agreement.
@@ -379,7 +377,8 @@ All share a uniform contract: **structured input context (idea + upstream artifa
 ## 12. Technical Debt
 
 ### Known issues
-- **Console status badges are stale** (§3, §11) — currently understates what's built. Should be fixed before showing this to anyone.
+- **Console "Tracing" badge reads `live`** but no LangSmith/Logfire trace has ever been confirmed against a real dashboard (§7) — a mild overstatement, the mirror image of the stale-badge problem fixed at `aab6f29`. Cheapest honest fix: supply a token and verify a trace; otherwise downgrade the badge to `wiring`.
+- **`data_dir="data"` is CWD-relative** — starting `p2pops-api` from any directory other than the repo root silently creates a fresh, empty database there (observed live: a stray `web/data/protopro.db` from starting the API inside `web/`). Fine for now; an absolute-path or repo-root-anchored default would remove the foot-gun.
 - **`SHORTLIST_THRESHOLD=50` and `MAX_REFINEMENT_ROUNDS=2`** are hardcoded module constants, not configurable — fine for now, explicitly logged as "revisit once there's a dashboard to tune them from" (Analyst) / "a real venture studio kills ideas" (venture, this one is more a design stance than debt).
 
 ### Temporary implementations (explicitly logged deviations)
@@ -491,6 +490,7 @@ cd web && pnpm build && pnpm start   # production build
 | `src/p2pops/db/repository.py` | All SQL | Single place that owns data-access semantics | Used by `runner.py`, `graph.py`, `venture/graph.py`, `api/app.py` |
 | `src/p2pops/notify.py` | Email HITL delivery | Implements ADR-0002 | Called by `graph.request_review_node` |
 | `src/p2pops/mcp/server.py` | MCP tool server | Makes Research Agent's tools a real, portable MCP service | Connected to by `agents/research.py` via `langchain-mcp-adapters` |
+| `web/src/lib/api.ts` | Server-side client for `/api/v1` | Feeds live pipeline data to the site with timeout + seeded-fallback semantics | Used by hero, showcase, pipeline-stats, console |
 | `web/src/app/globals.css` | Design system tokens | The entire "obsidian & ember" visual identity | Used by every component |
 | `docs/adr/*.md` | Architecture Decision Records | The actual engineering reasoning, not just outcomes | Referenced throughout this document |
 | `implementation-notes.md` | Chronological phase log | Session-by-session build history, kept during development | Predecessor/complement to this file |
@@ -500,7 +500,31 @@ cd web && pnpm build && pnpm start   # production build
 
 ## 15. Session Handoff — READ THIS FIRST
 
-### What was completed in the most recent session (2026-07-06, continuation of an earlier same-day session)
+### What was completed in the most recent session (2026-07-06, Phase 2: frontend↔API wiring)
+
+1. **Confirmed repo state ahead of the previous handoff**: the console badge fix (previous handoff's task #1) was already committed at `aab6f29` together with this document — do not redo it.
+2. **Wired the frontend to the live API** (the previous handoff's next-highest priority):
+   - New `web/src/lib/api.ts`: server-side `/api/v1` client — typed mirrors of the API schemas, 2.5s timeout, and every helper returns `null` on any failure so callers fall back to the seeded content in `cases.ts`. The public site renders fully even with the backend down (verified, not assumed).
+   - Landing page: hero discovery ticker (live idea titles; needs ≥6 to loop seamlessly, else seed), Showcase (top-3 `shortlisted|approved` ideas by score, approved-first tiebreak; needs ≥3 else seed — a partial grid reads as broken), PipelineStats (ideas analyzed / analyst-shortlisted / discovery runs / opportunity dossiers). All via ISR (`next: { revalidate: 120 }`) — `/` stays statically prerendered, confirmed in build output.
+   - Console: new "Live from the run store" metrics strip (runs / ideas analyzed / human-approved / opportunity dossiers) with an explicit API connected/offline indicator; page is `dynamic = "force-dynamic"` with `cache: "no-store"` fetches.
+   - `web/.env.example` documents `PROTOPRO_API_URL` (server-side only; blank = `http://127.0.0.1:8000`).
+3. **Two Next.js 16 findings that must not be lost** (from the bundled docs in `web/node_modules/next/dist/docs/`, read per `web/AGENTS.md` before coding — both paid off):
+   - This project does **not** enable `cacheComponents`, so the *previous* caching model applies: `fetch` defaults to uncached; ISR via `next.revalidate` on fetch; `force-dynamic` for per-request pages. Don't write `use cache` directives here without enabling the flag first.
+   - Passing an `AbortSignal` to `fetch` **opts it out of Next's per-render memoization** — which would have silently doubled the `/ideas` request shared by the hero ticker and Showcase. Timeouts in `api.ts` therefore use `Promise.race`, deliberately not a signal. Keep it that way.
+4. **Live verification, both directions**: API up → console strip showed the real 14 runs / 9 ideas / 3 approved / 3 dossiers and the landing page revalidated from the seeded build shell to real DB titles within one ISR cycle. API stopped → console renders "API offline" + em-dash values, landing keeps serving the cached page. `pnpm build` (with backend offline — exercises the fallback at build time), `pnpm lint`, and `uv run pytest` (37/37) all clean. No backend code was touched this session.
+5. **PROJECT_BRAIN.md updated** (§2, §3, §5, §9, §11, §12, §14, §15) and `implementation-notes.md` gained the Phase 2 entry.
+
+### Files modified/added this session (Phase 2)
+- **Added**: `web/src/lib/api.ts`, `web/.env.example`.
+- **Modified**: `web/src/components/hero.tsx`, `web/src/components/showcase.tsx`, `web/src/components/pipeline-stats.tsx`, `web/src/app/console/page.tsx`, `PROJECT_BRAIN.md`, `implementation-notes.md`.
+- **Left behind (needs manual cleanup)**: a stray empty `web/data/protopro.db` — created when the API was accidentally started from inside `web/` (the CWD-relative `data_dir` gotcha, §12). Safe to delete; the real database is `data/protopro.db` at the repo root.
+
+### Exact next task for the next session
+The cheapest high-value move is still **one real observability trace** (LangSmith or Logfire) — but it is **blocked on the user supplying an API token** in `.env`; nothing can be done without it. Ask for the token first. If it isn't available, the two unblocked candidates are, in order of the user's previously expressed engagement: (a) **console deep views** — render the `RunEvent` timeline in the console (the data and the SSE stream already exist and are unconsumed by the UI), or (b) **the build-squad subgraph** (PM → Architect → Engineer fan-out → QA), the biggest remaining feature gap. Also worth an explicit user decision: whether the console's "Tracing: live" badge should read `wiring` until a real trace is confirmed (§12).
+
+---
+
+### Previous session record (2026-07-06, Phase 1.5 — kept for context)
 
 1. **Full Phase 1 + venture pipeline** (already committed at `9e8df96` before this session's continuation): async DB layer, email HITL via LangGraph `interrupt()`, FastAPI service, the entire venture pipeline (evidence, 4 parallel agents, deterministic gates/ranking, bounded red-team/refiner loop, product vision synthesis, `OpportunityDossier` persistence).
 2. **This session's work** (committed at `7c79955`, "Add LLM-call resilience layer; fix 5 live bugs; switch Groq default model"):
@@ -518,28 +542,33 @@ cd web && pnpm build && pnpm start   # production build
    - Added `docs/adr/0005-llm-call-resilience-and-groq-model-choice.md` documenting all of the above.
 3. **This document** (`PROJECT_BRAIN.md`) was created via full repository re-inspection (every source file, `pyproject.toml`, `package.json`, a grep for TODOs/Docker/CI/Braintrust/Promptfoo/PRAW to confirm gaps by absence, not assumption) plus a grounded (web-searched, not guessed) evaluation of Google's Open Knowledge Format.
 
-### Files modified/added this session
+### Files modified/added that session
 - **Added**: `src/p2pops/resilience.py`, `tests/test_resilience.py`, `docs/adr/0005-llm-call-resilience-and-groq-model-choice.md`, `PROJECT_BRAIN.md` (this file).
 - **Modified**: `src/p2pops/config.py` (Groq provider, blank-string validator), `src/p2pops/chat_model.py` (Groq branch, `max_retries=0`), `src/p2pops/agents/research.py` (retry wrapping, step ceiling, source_url prompt fix), `src/p2pops/agents/analyst.py` (retry wrapping), `src/p2pops/guardrails.py` (max_tokens for reasoning models), `src/p2pops/mcp/server.py` (payload caps, empty-result placeholders), `src/p2pops/tools/web.py` (non-empty return guarantee), `src/p2pops/venture/agents.py` (delegate to shared retry seam), `tests/test_config.py`, `tests/test_api.py`, `tests/test_mcp_server.py`, `.env.example`, `implementation-notes.md`.
 - **`.env`** (not committed, gitignored): now has a working `GROQ_API_KEY`, `LLM_PROVIDER=groq`, `REVIEW_EMAIL_TO` set to the user's real email.
 
-### Exact next task for the next session
-Per the user's own stated immediate priorities (§11): **fix the console's stale status badges first** (`web/src/app/console/page.tsx` — "Runs" and "Human gate" should be `"live"`, not `"wiring"`; only "Evaluations" is still genuinely accurate as `"wiring"`). This is a 2-minute fix with outsized honesty/credibility value. After that, the highest-leverage next moves are (in the order the user seemed most engaged with): (a) get one real LangSmith or Logfire trace/screenshot (just needs a token dropped into `.env`), (b) wire the frontend to the live API instead of static seed data, (c) start the build-squad subgraph (the biggest remaining feature gap).
+*(That session's "exact next task" — the console badge fix and frontend wiring — is done; see the Phase 2 record above for the current handoff.)*
 
 ### Remaining blockers
-None currently. (Historical: Anthropic-direct and OpenRouter both exhausted their credit/balance during earlier sessions — Groq is the funded, working provider now.)
+Only the observability trace, blocked on a LangSmith/Logfire token from the user. (Historical: Anthropic-direct and OpenRouter both exhausted their credit/balance during earlier sessions — Groq is the funded, working provider now.)
 
-### Assumptions made this session
+### Assumptions made (Phase 1.5 session)
 - That fixing tool outputs to never return empty content, rather than trying to make Groq accept empty content, was the correct fix direction (it is — it's also just better tool design regardless of provider).
 - That `llama-4-scout-17b-16e-instruct` is an acceptable default-tier model choice going forward given it was chosen primarily for measured rate-limit headroom on this specific Groq account, not for being the objectively "best" model. If the account's tier/limits change, or if Anthropic/OpenRouter credit is restored, `LLM_PROVIDER` can be flipped back with no code changes — that's the whole point of the abstraction.
 - That two "parked" opportunities out of three in the live verification run represents the system working *correctly* (honest quality gating), not a defect to "fix" by loosening the gates. Do not weaken `MAX_REFINEMENT_ROUNDS` or the stress-gate's critical-issue check just to get more `complete` outcomes — that would defeat the point.
 
 ### Open questions for the user
-- Priority: fix the console badges + get a real observability trace (fast, low-risk) vs. jump straight to the build-squad subgraph (bigger, more interview-impressive, but a bigger chunk of new work)?
+- Is a LangSmith or Logfire token available, to finally verify one real trace? (Blocks §11's task #1.)
+- Priority: console deep views (run timelines from `RunEvent`/SSE) vs. the build-squad subgraph (bigger, more interview-impressive, but a bigger chunk of new work)?
+- Should the console's "Tracing" badge read `wiring` until a real trace is confirmed (§12)?
 - Is a Resend API key available/wanted, to move the email HITL off the console/log adapter and onto real email delivery?
 - Any interest in the OKF stretch goal (§12) now that it's been evaluated and scoped narrowly, or should the principle library stay as plain Python for now?
 
 ### Important implementation details a new session must know
+- **The frontend degrades gracefully by contract**: every `web/src/lib/api.ts` helper returns `null` on any failure and every consumer falls back to the seeded content in `cases.ts`. Never let a component render blank/broken because the API is down, and never delete the seed data — it *is* the fallback.
+- **Do not pass an `AbortSignal` to `fetch` in the web app** — Next.js drops per-render memoization for signal-carrying fetches (documented in the bundled Next 16 docs), which would duplicate the `/ideas` request shared across components. `api.ts` uses `Promise.race` for timeouts for exactly this reason.
+- **`cacheComponents` is not enabled** in `web/next.config.ts` — the previous caching model applies (`next.revalidate` on fetch, `dynamic = "force-dynamic"` for per-request pages). Read `web/node_modules/next/dist/docs/` before frontend work; it has already caught two would-be bugs.
+- **Start `p2pops-api` from the repo root** — `data_dir` is CWD-relative (§12).
 - **The `_structured` seam** (`venture/agents.py`) is the one place all venture-pipeline LLM calls flow through — it's also the exact function tests monkeypatch to run the entire venture graph offline, deterministically. Any new venture agent must go through it.
 - **`request_review` must never move inside `human_gate`** — LangGraph re-executes an interrupted node from the top on resume, so if the review-token-creation and email-sending logic were inside the same node as the `interrupt()` call, resuming would re-send the email and re-create tokens. This is why they're two separate nodes.
 - **Never loosen `_is_retryable`'s "4xx (except 429) = don't retry"** default without a specific, named, observed exception (like the two Groq generation-error codes) — the whole point of this module is that it was built from *observed* failures, not theoretical ones. Speculative retryability additions should be resisted.

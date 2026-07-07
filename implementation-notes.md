@@ -89,6 +89,38 @@
 - **Tests: 37 passing** (was 23 at end of Phase 1).
 - ADR-0005 added.
 
+### Phase 2 — Frontend wired to the live API (2026-07-06)
+- **`web/src/lib/api.ts`** (new): server-side client for `/api/v1` — typed
+  mirrors of the API schemas, 2.5s timeout, and a hard rule: every helper
+  returns `null` on any failure so callers fall back to the seeded content.
+  The public site must render fully even when the backend host is down.
+  Base URL via `PROTOPRO_API_URL` (server-only, `web/.env.example`), default
+  `http://127.0.0.1:8000`.
+- **Next.js 16 specifics** (read from the bundled docs per `web/AGENTS.md`,
+  which paid off twice): the project does *not* enable `cacheComponents`,
+  so the previous caching model applies — landing-page fetches use
+  `next: { revalidate: 120 }` (ISR: `/` stays statically prerendered, build
+  output confirms `○ / — Revalidate 2m`), and `/console` uses
+  `dynamic = "force-dynamic"` + `cache: "no-store"`. Second payoff: passing
+  an `AbortSignal` opts a fetch **out of per-render memoization**, which
+  would have doubled the shared `/ideas` request — timeouts therefore use
+  `Promise.race`, not a signal.
+- **Wired**: hero discovery ticker (live idea titles, needs ≥6 to loop
+  seamlessly, else seed), Showcase (top-3 shortlisted/approved ideas by
+  score, approved-first tiebreak; needs ≥3, else seed — a partial grid
+  reads as broken), PipelineStats (ideas/shortlist/runs/dossier counts),
+  and a new console "Live from the run store" strip with an explicit
+  API connected/offline indicator ("—" values when offline).
+- **Verified live both ways**: with the API up — console 14 runs / 9 ideas /
+  3 approved / 3 dossiers, landing revalidated from the seeded build shell
+  to real titles within one ISR cycle (both `PTP-00x` cards and ticker
+  titles matched the SQLite rows). With the API stopped — console renders
+  "API offline" + em-dashes, landing keeps serving the cached page.
+  `pnpm build` (offline fallback path) and `pnpm lint` clean; 37 tests pass.
+- **Gotcha logged**: `data_dir="data"` is CWD-relative — starting
+  `p2pops-api` from `web/` silently created a fresh empty `web/data/`
+  database. Start the API from the repo root.
+
 ### Phase 0.5 — Brand + web foundation (2026-07-05)
 - First git commits (repo had none): baseline of Milestones 1–3, then the web app.
 - `web/`: Next.js 16 + TS + Tailwind v4 + motion, pnpm.

@@ -1,8 +1,21 @@
+import { getIdeas } from "@/lib/api";
 import { DISCOVERY_FEED } from "@/lib/cases";
 
-function DiscoveryTicker() {
+/**
+ * Live idea titles from the pipeline; the seeded feed when the API is
+ * down or has too few items for the marquee to loop without a visible
+ * gap.
+ */
+async function loadFeed(): Promise<string[]> {
+  const ideas = await getIdeas();
+  if (!ideas || ideas.length < 6) return DISCOVERY_FEED;
+  return ideas.slice(0, 12).map((idea) => idea.title);
+}
+
+async function DiscoveryTicker() {
+  const feed = await loadFeed();
   // Duplicated list yields a seamless -50% translate loop.
-  const items = [...DISCOVERY_FEED, ...DISCOVERY_FEED];
+  const items = [...feed, ...feed];
   return (
     <div className="ticker-mask w-full overflow-hidden border-y hairline py-3.5">
       <div className="animate-ticker flex w-max items-center gap-10">
@@ -10,7 +23,7 @@ function DiscoveryTicker() {
           <span
             key={i}
             className="flex shrink-0 items-center gap-3 font-mono text-[11px] uppercase tracking-[0.12em] text-mist-500"
-            aria-hidden={i >= DISCOVERY_FEED.length}
+            aria-hidden={i >= feed.length}
           >
             <span className="h-1 w-1 rounded-full bg-maroon-400" />
             {item}
