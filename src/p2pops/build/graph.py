@@ -1,11 +1,17 @@
-"""The build-squad graph -- runs once per manually-triggered
-`p2pops-build <opportunity_id>` call.
+"""The build-squad graph -- runs automatically for every venture-complete
+opportunity after human approval (runner.resume_run), and manually via
+`p2pops-build <opportunity_id>` / the protected POST /api/v1/builds.
 
     pm -> architect -> engineer -> qa -> [conditional]
                                      |
-                    passed ----------+--- mark_complete -----> finish
+                    passed ----------+--- mark_complete -> publish -> finish
                     failed & round < MAX_QA_ROUNDS -> revise -> qa (loop back)
                     failed & rounds exhausted -> mark_needs_revision -> finish
+
+The publish stage deploys the QA-passed product to its own public URL
+(publish.py, Vercel) and smoke-checks it; only then can the showcase say
+"Live". It degrades honestly (skip/error event, build stays complete) when
+credentials are missing or the deploy fails.
 
 Design invariants (mirroring venture/graph.py):
 - LLM agents produce artifacts; *code* makes the qa_gate pass/fail decision
@@ -46,15 +52,18 @@ class BuildState(TypedDict, total=False):
     build_id: str
     opportunity_id: str
     dossier: OpportunityDossier  # the input -- a *complete* venture dossier
+    ptp_number: int | None  # the idea's public showcase number (publish stage)
 
     ctx: str
     plan: BuildPlan
     architecture: ArchitectureSpec
+    targets: dict[str, tuple[str, str]]  # component -> (path, language), fixed per architecture
     scaffold_files: list[ScaffoldFile]
     qa_reports: list[QAReport]
     gates: list[GateResult]
     round_index: int
     outcome: str  # complete | needs_revision
+    deploy_url: str | None
 
 
 async def _event(state: BuildState, agent: str, event_type: str, message: str, t0: float | None = None) -> None:
@@ -84,8 +93,11 @@ async def pm_node(state: BuildState) -> dict:
 async def architect_node(state: BuildState) -> dict:
     t0 = time.monotonic()
     architecture = await agents.design_architecture(state["ctx"], state["plan"])
+    # Paths are decided once per architecture (code, never the LLM) so a
+    # QA-revised component keeps the exact same file path across rounds.
+    targets = scoring.scaffold_targets(architecture.components)
     await _event(state, "build/architect", "stage_completed", f"{len(architecture.components)} components", t0)
-    return {"architecture": architecture}
+    return {"architecture": architecture, "targets": targets}
 
 
 async def _run_engineer(
@@ -110,7 +122,7 @@ async def _run_engineer(
             component,
             feedback_by_component.get(component.name, ""),
         )
-        path, language = scoring.scaffold_target(component)
+        path, language = state["targets"][component.name]
         await _event(state, "build/engineer", "stage_completed", f"{component.name} -> {path}", t0)
         return ScaffoldFile(
             component=component.name,
@@ -213,6 +225,36 @@ async def mark_complete_node(state: BuildState) -> dict:
     return {"outcome": "complete"}
 
 
+async def publish_node(state: BuildState) -> dict:
+    """Deploys the QA-passed product to its own public URL. Contained like
+    every other stage: a publish failure is an error event and an unpublished
+    (but still complete) build, never a failed graph. Skips honestly when no
+    deploy credentials or no PTP number are configured."""
+    from ..config import get_settings
+    from ..publish import publish_product
+
+    settings = get_settings()
+    ptp_number = state.get("ptp_number")
+    if not settings.vercel_token:
+        await _event(state, "build/publish", "stage_completed", "publish skipped: no deploy credentials configured")
+        return {}
+    if ptp_number is None:
+        await _event(state, "build/publish", "stage_completed", "publish skipped: idea has no PTP number")
+        return {}
+
+    dossier = state["dossier"]
+    product_name = dossier.vision.product_name if dossier.vision else dossier.idea_title
+    t0 = time.monotonic()
+    try:
+        url = await publish_product(state.get("scaffold_files") or [], ptp_number, product_name)
+    except Exception as exc:
+        await _event(state, "build/publish", "error", f"publish failed: {exc}")
+        return {}
+    await repo.set_build_deploy_url(state["build_id"], url)
+    await _event(state, "build/publish", "stage_completed", f"live at {url} (deployed + smoke-checked)", t0)
+    return {"deploy_url": url}
+
+
 async def mark_needs_revision_node(state: BuildState) -> dict:
     return {"outcome": "needs_revision"}
 
@@ -230,6 +272,7 @@ async def finish_node(state: BuildState) -> dict:
         scaffold_files=state.get("scaffold_files") or [],
         qa_reports=state.get("qa_reports") or [],
         gates=state.get("gates") or [],
+        deploy_url=state.get("deploy_url"),
     )
     await repo.finish_build(state["build_id"], outcome, dossier.model_dump_json())
     await _event(state, "build/system", "stage_completed", f"build {outcome}: {dossier_in.idea_title[:80]}")
@@ -244,6 +287,7 @@ def build_build_graph() -> StateGraph:
     graph.add_node("qa", qa_node)
     graph.add_node("revise", revise_node)
     graph.add_node("mark_complete", mark_complete_node)
+    graph.add_node("publish", publish_node)
     graph.add_node("mark_needs_revision", mark_needs_revision_node)
     graph.add_node("finish", finish_node)
 
@@ -261,7 +305,8 @@ def build_build_graph() -> StateGraph:
         },
     )
     graph.add_edge("revise", "qa")
-    graph.add_edge("mark_complete", "finish")
+    graph.add_edge("mark_complete", "publish")
+    graph.add_edge("publish", "finish")
     graph.add_edge("mark_needs_revision", "finish")
     graph.add_edge("finish", END)
     return graph

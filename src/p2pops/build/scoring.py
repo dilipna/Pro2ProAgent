@@ -32,7 +32,15 @@ def qa_gate(report: QAReport, round_index: int) -> GateResult:
 
 
 # Ordered so the first matching keyword wins; checked against `tech.lower()`.
+# The browser-file rows come first: since the MVP pivot the Architect is
+# instructed to design a self-contained client-side web app, so HTML/JS/CSS
+# are the expected component techs; the server-side rows remain as fallbacks
+# for any component the Architect frames that way (those files ship in the
+# dossier but are not browser-deployable — publish.py filters them).
 _LANGUAGE_KEYWORDS: list[tuple[tuple[str, ...], str, str]] = [
+    (("html", "page", "markup", "ui"), "index.html", "html"),
+    (("css", "style", "design system"), "styles.css", "css"),
+    (("javascript", "js", "logic", "browser", "localstorage"), "app.js", "javascript"),
     (("fastapi", "flask", "django", "python"), "main.py", "python"),
     (("next.js", "nextjs", "react", "typescript", "node"), "index.tsx", "typescript"),
     (("postgres", "sql", "schema", "database"), "schema.sql", "sql"),
@@ -49,3 +57,26 @@ def scaffold_target(component: ComponentSpec) -> tuple[str, str]:
         if any(k in tech for k in keywords):
             return filename, language
     return "README.md", "markdown"
+
+
+def _slug(name: str) -> str:
+    import re
+
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "component"
+
+
+def scaffold_targets(components: list[ComponentSpec]) -> dict[str, tuple[str, str]]:
+    """Unique (path, language) per component, decided once per architecture
+    so paths stay stable across QA revision rounds. Collisions (two 'JS
+    logic' components, say) get a deterministic component-slug prefix; the
+    first claimant keeps the canonical name, so index.html stays the app's
+    entry page."""
+    taken: set[str] = set()
+    targets: dict[str, tuple[str, str]] = {}
+    for component in components:
+        path, language = scaffold_target(component)
+        if path in taken:
+            path = f"{_slug(component.name)}-{path}"
+        taken.add(path)
+        targets[component.name] = (path, language)
+    return targets

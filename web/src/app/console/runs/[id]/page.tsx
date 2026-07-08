@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getRun } from "@/lib/api";
+import { LiveTimeline } from "@/components/live-timeline";
 import { Wordmark } from "@/components/nav";
 
 // Operations view: metrics must be current, never a stale cached render.
@@ -41,6 +42,7 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
         <p className="mt-2 font-mono text-[11px] text-mist-600">
           {run.id} · started {new Date(run.created_at).toLocaleString()}
           {run.completed_at && ` · completed ${new Date(run.completed_at).toLocaleString()}`}
+          {run.source === "search" && run.keyword && ` · visitor search: “${run.keyword}”`}
         </p>
         {run.error && (
           <p className="mt-4 rounded-xl border hairline bg-[rgba(194,53,83,0.08)] p-4 text-sm text-maroon-300">
@@ -71,6 +73,9 @@ export default async function RunDetailPage({ params }: { params: Promise<{ id: 
                 </li>
               ))}
             </ol>
+          )}
+          {["running", "awaiting_review", "building"].includes(run.status) && (
+            <LiveTimeline runId={run.id} skip={run.events.length} />
           )}
         </section>
 

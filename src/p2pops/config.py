@@ -24,6 +24,8 @@ _BLANKABLE_FIELDS = (
     "review_email_to",
     "resend_api_key",
     "api_token",
+    "vercel_token",
+    "vercel_team_id",
 )
 
 
@@ -116,6 +118,21 @@ class Settings(BaseSettings):
     # Optional bearer token protecting mutating API endpoints. Unset = open
     # (single-operator local development).
     api_token: str | None = None
+
+    # Product publishing (build-squad publish stage). Unset = the publish
+    # stage skips honestly (build completes, no live URL) rather than failing.
+    vercel_token: str | None = None
+    vercel_team_id: str | None = None
+
+    # Public keyword-search guardrails (Feature 2). All three are spend
+    # controls on an endpoint any visitor can hit — see the search route.
+    search_requests_per_hour_per_client: int = 3
+    search_runs_per_day: int = 8
+    search_dedupe_hours: int = 24
+    # Daily estimated-spend ceiling (USD) across ALL LLM calls; when today's
+    # ledger total crosses it, public search stops starting new runs and the
+    # console shows a cost alert. Operator-triggered runs are not blocked.
+    daily_cost_ceiling_usd: float = 1.0
 
     # Storage
     data_dir: str = "data"

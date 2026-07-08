@@ -92,16 +92,17 @@ async def execute_run(run_id: str, topic: str) -> None:
         await repo.set_run_status(run_id, "failed", str(exc))
 
 
-async def start_run(topic: str) -> Run:
+async def start_run(topic: str, source: str = "operator", keyword: str | None = None) -> Run:
     """Creates the run record and executes the pipeline in the background."""
-    run = await repo.create_run(topic)
+    run = await repo.create_run(topic, source=source, keyword=keyword)
     asyncio.create_task(execute_run(run.id, topic))
     return run
 
 
-async def execute_venture(run_id: str, idea: Idea) -> None:
+async def execute_venture(run_id: str, idea: Idea) -> str:
     """Runs the venture pipeline for one approved idea, recording into the
-    same run timeline. Failures are contained per-idea."""
+    same run timeline. Failures are contained per-idea. Returns the
+    opportunity id so the caller can chain the build squad on `complete`."""
     opportunity = await repo.create_opportunity(run_id, idea.id)
     try:
         venture = get_venture_pipeline()
@@ -120,6 +121,7 @@ async def execute_venture(run_id: str, idea: Idea) -> None:
         logger.exception("Venture pipeline failed for idea %s", idea.id)
         await repo.add_event(run_id, "venture/system", "error", f"{idea.title[:60]}: {exc}")
         await repo.finish_opportunity(opportunity.id, "failed", "")
+    return opportunity.id
 
 
 def _build_ready_dossier(opportunity) -> OpportunityDossier:
@@ -131,7 +133,13 @@ def _build_ready_dossier(opportunity) -> OpportunityDossier:
     return OpportunityDossier.model_validate(json.loads(opportunity.dossier))
 
 
-async def _run_build_graph(run_id: str, build_id: str, opportunity_id: str, dossier: OpportunityDossier) -> None:
+async def _run_build_graph(
+    run_id: str,
+    build_id: str,
+    opportunity_id: str,
+    dossier: OpportunityDossier,
+    ptp_number: int | None = None,
+) -> None:
     """Invokes the compiled build-squad graph against an already-created
     Build row. Contains failures the same way execute_venture does: one
     bad build never corrupts the opportunity or the run."""
@@ -139,12 +147,23 @@ async def _run_build_graph(run_id: str, build_id: str, opportunity_id: str, doss
         pipeline = get_build_pipeline()
         with logfire.span("build.execute", run_id=run_id, opportunity_id=opportunity_id):
             await pipeline.ainvoke(
-                {"run_id": run_id, "build_id": build_id, "opportunity_id": opportunity_id, "dossier": dossier}
+                {
+                    "run_id": run_id,
+                    "build_id": build_id,
+                    "opportunity_id": opportunity_id,
+                    "dossier": dossier,
+                    "ptp_number": ptp_number,
+                }
             )
     except Exception as exc:
         logger.exception("Build-squad failed for opportunity %s", opportunity_id)
         await repo.add_event(run_id, "build/system", "error", f"{dossier.idea_title[:60]}: {exc}")
         await repo.finish_build(build_id, "failed", "")
+
+
+async def _ptp_for_opportunity(opportunity) -> int | None:
+    idea = await repo.get_idea(opportunity.idea_id)
+    return idea.ptp_number if idea else None
 
 
 async def start_build(opportunity_id: str) -> Build:
@@ -156,23 +175,26 @@ async def start_build(opportunity_id: str) -> Build:
     if opportunity is None:
         raise ValueError(f"no such opportunity: {opportunity_id}")
     dossier = _build_ready_dossier(opportunity)
+    ptp_number = await _ptp_for_opportunity(opportunity)
     build = await repo.create_build(opportunity.run_id, opportunity_id)
-    asyncio.create_task(_run_build_graph(opportunity.run_id, build.id, opportunity_id, dossier))
+    asyncio.create_task(
+        _run_build_graph(opportunity.run_id, build.id, opportunity_id, dossier, ptp_number)
+    )
     return build
 
 
 async def execute_build(opportunity_id: str) -> Build:
     """Validates the opportunity, creates the Build row, and runs the
-    graph to completion before returning -- manually triggered, never
-    automatic (unlike venture pipeline after human approval). Used by the
-    `p2pops-build` CLI, which blocks until done so it can print the
-    result; no HTTP round trip needed."""
+    graph to completion before returning. Used by the `p2pops-build` CLI
+    (blocking, so it can print the result) and by resume_run's automatic
+    approve -> venture -> build chain."""
     opportunity = await repo.get_opportunity(opportunity_id)
     if opportunity is None:
         raise ValueError(f"no such opportunity: {opportunity_id}")
     dossier = _build_ready_dossier(opportunity)
+    ptp_number = await _ptp_for_opportunity(opportunity)
     build = await repo.create_build(opportunity.run_id, opportunity_id)
-    await _run_build_graph(opportunity.run_id, build.id, opportunity_id, dossier)
+    await _run_build_graph(opportunity.run_id, build.id, opportunity_id, dossier, ptp_number)
     return await repo.get_build(build.id)
 
 
@@ -200,7 +222,21 @@ async def resume_run(run_id: str) -> None:
     # Sequential on purpose: caps LLM spend/concurrency and keeps the event
     # timeline readable. Parallelism here is a knob, not a rewrite.
     for idea in ideas:
-        await execute_venture(run_id, idea)
+        opportunity_id = await execute_venture(run_id, idea)
+        # Close the loop: a venture-complete opportunity goes straight to the
+        # build squad (and, on QA pass, publish) — approval is the only human
+        # step between Discover and a live product. Parked/rejected/failed
+        # opportunities stop here, honestly.
+        opportunity = await repo.get_opportunity(opportunity_id)
+        if opportunity is not None and opportunity.status == "complete":
+            await repo.add_event(
+                run_id, "build/system", "stage_started", f"auto-enqueued build squad: {idea.title[:80]}"
+            )
+            try:
+                await execute_build(opportunity_id)
+            except Exception as exc:  # execute_build contains graph errors; this guards the chain itself
+                logger.exception("Auto-build failed for opportunity %s", opportunity_id)
+                await repo.add_event(run_id, "build/system", "error", f"auto-build: {exc}")
     await repo.set_run_status(run_id, "completed")
 
 

@@ -16,6 +16,10 @@ export interface CaseStudy {
   score: number;
   source: string;
   status: CaseStatus;
+  /** Public URL of the shipped product, once one exists. */
+  liveUrl?: string | null;
+  /** Internal story page (/showcase/ptp-xxx) for pipeline-backed items. */
+  storyHref?: string;
 }
 
 export const CASES: CaseStudy[] = [

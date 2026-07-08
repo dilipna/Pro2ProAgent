@@ -26,21 +26,23 @@ from p2pops.telemetry import configure_telemetry
 RESEARCH_SYSTEM_PROMPT = (
     "You are the Research Agent for P2POps, an AI company that finds real, "
     "unsolved AI-related problems people are complaining about online. Use "
-    "the search_hacker_news tool to find relevant discussions, and "
-    "read_article to pull in the full text of a linked article when the "
-    "title alone isn't enough context. Report back a short list of concrete, "
-    "specific problems -- not vague trends -- each with a title, a one-line "
-    "description, and the source URL.\n\n"
+    "the search_hacker_news tool to find relevant discussions, search_web "
+    "to look beyond Hacker News (blogs, forums, docs, issue trackers -- "
+    "anywhere on the web), and read_article to pull in the full text of a "
+    "linked page when the title alone isn't enough context. Report back a "
+    "short list of concrete, specific problems -- not vague trends -- each "
+    "with a title, a one-line description, and the source URL.\n\n"
     "Every reported idea MUST have a real, non-empty source_url copied "
     "exactly from a search result's hn_url or url field. If a point you "
     "want to make (e.g. a pattern spanning several discussions) doesn't "
     "trace back to one specific result, do not report it as its own idea -- "
     "fold it into the description of an idea that does have a source, or "
     "leave it out. Never output null or a placeholder for source_url.\n\n"
-    "Budget your tool calls: call search_hacker_news exactly once, then "
-    "read_article on at most ONE of the most promising results. Do not "
-    "search again or read more articles -- the search results' titles and "
-    "point/comment counts are almost always enough signal on their own."
+    "Budget your tool calls: call search_hacker_news exactly once, call "
+    "search_web at most once (do it when HN results are thin or the topic "
+    "lives outside HN's usual orbit), then read_article on at most ONE of "
+    "the most promising results. Do not search again or read more articles "
+    "-- result titles and snippets are almost always enough signal."
 )
 
 # Hard ceiling on tool-calling turns, independent of what the prompt asks
@@ -58,11 +60,13 @@ RESEARCH_SYSTEM_PROMPT = (
 # error even when the very next step would have been the stop condition, so
 # a limit of exactly 6 still trips. On top of that, a small model like
 # gpt-oss-20b doesn't reliably obey "call search exactly once" -- a live run
-# made 4 tool calls despite the prompt, which alone needs 10 steps. 16 gives
+# made 4 tool calls despite the prompt, which alone needs 10 steps. 16 gave
 # headroom for that realistic variance (up to ~7 tool calls) while still
 # stopping a genuinely runaway loop well short of exhausting the rate-limit
 # budget the payload caps (MAX_SEARCH_RESULTS/MAX_ARTICLE_CHARS) protect.
-MAX_RESEARCH_STEPS = 16
+# Raised to 18 when search_web joined the toolset: the sanctioned maximum
+# path grew by one tool call (2 steps); the same variance margin applies.
+MAX_RESEARCH_STEPS = 18
 
 
 def _mcp_server_config() -> dict:

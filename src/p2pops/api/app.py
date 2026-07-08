@@ -6,10 +6,11 @@
 """
 
 import asyncio
+import hashlib
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from sse_starlette.sse import EventSourceResponse
@@ -18,6 +19,8 @@ from .. import runner
 from ..config import get_settings
 from ..db import repository as repo
 from ..db.engine import dispose_engine, init_db
+from ..guardrails import is_search_query_allowed
+from ..resilience import with_retry
 from ..telemetry import configure_telemetry
 from .schemas import (
     BuildCreate,
@@ -28,9 +31,16 @@ from .schemas import (
     IdeaOut,
     OpportunityDetailOut,
     OpportunityOut,
+    PendingReviewOut,
+    ReviewDecisionIn,
+    ReviewDecisionOut,
     RunCreate,
     RunDetailOut,
     RunOut,
+    SearchCreate,
+    SearchOut,
+    ShowcaseDetailOut,
+    ShowcaseItemOut,
     StatsOut,
 )
 
@@ -44,7 +54,7 @@ async def lifespan(app: FastAPI):
     await dispose_engine()
 
 
-app = FastAPI(title="ProToPro API", version="1.0", lifespan=lifespan)
+app = FastAPI(title="ProToPro API", version="1.1", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -170,6 +180,161 @@ async def create_build(payload: BuildCreate):
         detail = str(exc)
         status_code = 404 if "no such opportunity" in detail else 400
         raise HTTPException(status_code=status_code, detail=detail) from exc
+
+
+# --- Showcase (public problem-to-product records) ------------------------------
+
+
+@app.get("/api/v1/showcase", response_model=list[ShowcaseItemOut])
+async def get_showcase():
+    return await repo.showcase_items()
+
+
+@app.get("/api/v1/showcase/{ptp_number}", response_model=ShowcaseDetailOut)
+async def get_showcase_item(ptp_number: int):
+    item = await repo.showcase_item_by_ptp(ptp_number)
+    if item is None:
+        raise HTTPException(status_code=404, detail="No such PTP item")
+    return item
+
+
+# --- Public keyword search ------------------------------------------------------
+
+
+def _client_id(request: Request) -> str:
+    """Stable, non-reversible per-caller key for rate limiting. First hop of
+    X-Forwarded-For behind a proxy (Render terminates TLS in front of us),
+    the socket peer otherwise. Hashed so raw addresses never hit the DB."""
+    forwarded = request.headers.get("x-forwarded-for")
+    raw = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "unknown")
+    return hashlib.sha256(f"p2pops-search:{raw}".encode()).hexdigest()[:32]
+
+
+def _normalize_keyword(keyword: str) -> str:
+    return " ".join(keyword.lower().split())
+
+
+@app.post("/api/v1/search", response_model=SearchOut)
+async def public_search(payload: SearchCreate, request: Request):
+    """Visitor-facing scoped discovery. Deliberately public — the spend
+    controls are layered *here* (per-client and global rate limits, keyword
+    dedupe, daily cost ceiling, guardrail) instead of a bearer token, and
+    everything it starts still flows through the same human approval gate
+    as an operator run. A visitor can surface candidates; only the operator
+    can green-light a build."""
+    settings = get_settings()
+    keyword = payload.keyword.strip()
+    normalized = _normalize_keyword(keyword)
+    client_id = _client_id(request)
+    now = datetime.now(UTC)
+    matches = [IdeaOut.model_validate(i) for i in await repo.search_ideas(keyword)]
+
+    # Order matters: every rejection below is recorded (so hammering never
+    # earns more attempts) and none of them spends a single LLM token.
+    per_client = await repo.search_requests_since(client_id, now - timedelta(hours=1))
+    if per_client >= settings.search_requests_per_hour_per_client:
+        await repo.create_search_request(keyword, normalized, client_id, "rate_limited")
+        return SearchOut(
+            outcome="rate_limited",
+            message="You've reached the hourly search limit — existing matches are shown below. Try again later.",
+            matches=matches,
+        )
+
+    recent = await repo.recent_search_run(normalized, now - timedelta(hours=settings.search_dedupe_hours))
+    if recent is not None:
+        await repo.create_search_request(keyword, normalized, client_id, "deduplicated", run_id=recent.run_id)
+        return SearchOut(
+            outcome="deduplicated",
+            message="This keyword was searched recently — following the existing run instead of starting a new one.",
+            run_id=recent.run_id,
+            matches=matches,
+        )
+
+    daily = await repo.search_runs_since(now - timedelta(hours=24))
+    if daily >= settings.search_runs_per_day:
+        await repo.create_search_request(keyword, normalized, client_id, "rate_limited")
+        return SearchOut(
+            outcome="rate_limited",
+            message="The daily budget for visitor-triggered discovery runs is spent. Existing matches are shown below.",
+            matches=matches,
+        )
+
+    if await repo.cost_today_usd() >= settings.daily_cost_ceiling_usd:
+        await repo.create_search_request(keyword, normalized, client_id, "budget_exhausted")
+        return SearchOut(
+            outcome="budget_exhausted",
+            message="Today's LLM spend ceiling is reached, so no new discovery runs start until it resets.",
+            matches=matches,
+        )
+
+    try:
+        allowed = await with_retry(lambda: is_search_query_allowed(keyword), agent="search.guardrail")
+    except Exception:
+        await repo.create_search_request(keyword, normalized, client_id, "unavailable")
+        return SearchOut(
+            outcome="unavailable",
+            message="Keyword validation is unavailable right now — please try again shortly.",
+            matches=matches,
+        )
+    if not allowed:
+        await repo.create_search_request(keyword, normalized, client_id, "blocked")
+        return SearchOut(
+            outcome="blocked",
+            message="That keyword didn't pass the input guardrail — try a topic in the AI / developer-tooling space.",
+            matches=matches,
+        )
+
+    # Scope the same discovery pipeline to the visitor's keyword; the suffix
+    # keeps the Research Agent inside ProToPro's problem domain.
+    topic = f"{keyword} — real developer / AI-engineering pain points"
+    run = await runner.start_run(topic, source="search", keyword=keyword)
+    await repo.create_search_request(keyword, normalized, client_id, "started", run_id=run.id)
+    return SearchOut(
+        outcome="started",
+        message="Scoped discovery run started. New candidates go through validation and the human gate before anything is built.",
+        run_id=run.id,
+        matches=matches,
+    )
+
+
+# --- Console approval queue -------------------------------------------------------
+
+
+@app.get(
+    "/api/v1/reviews/pending",
+    response_model=list[PendingReviewOut],
+    dependencies=[Depends(require_operator)],
+)
+async def pending_reviews():
+    """Operator-only: the tokens returned here are live approve/reject
+    capabilities, so this list must never be public."""
+    reviews = await repo.all_pending_reviews()
+    return [
+        PendingReviewOut(
+            token=r.id,
+            run_id=r.run_id,
+            created_at=r.created_at,
+            expires_at=r.expires_at,
+            idea=IdeaOut.model_validate(r.idea),
+        )
+        for r in reviews
+    ]
+
+
+@app.post(
+    "/api/v1/reviews/{token}",
+    response_model=ReviewDecisionOut,
+    dependencies=[Depends(require_operator)],
+)
+async def decide_review(token: str, payload: ReviewDecisionIn):
+    """JSON twin of the emailed /r/{token}/{decision} links, for the
+    in-console approval queue. Same single-use token semantics."""
+    normalized = "approved" if payload.decision == "approve" else "rejected"
+    review = await repo.record_decision(token, normalized)
+    if review is None:
+        raise HTTPException(status_code=410, detail="Review token invalid, already used, or expired")
+    resumed = await runner.maybe_resume_after_decision(review.run_id)
+    return ReviewDecisionOut(decision=normalized, run_resumed=resumed)
 
 
 @app.get("/api/v1/health", response_model=HealthOut)

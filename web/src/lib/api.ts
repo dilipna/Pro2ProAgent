@@ -12,7 +12,8 @@
  * hero ticker + showcase deliberately share one memoized /ideas request.
  */
 
-const API_BASE = process.env.PROTOPRO_API_URL ?? "http://127.0.0.1:8000";
+/** Exported for the route-handler proxies (search, console queue, SSE). */
+export const API_BASE = process.env.PROTOPRO_API_URL ?? "http://127.0.0.1:8000";
 
 /** Landing-page data is ISR-cached; minutes of staleness are fine. */
 const REVALIDATE_SECONDS = 120;
@@ -22,6 +23,7 @@ const TIMEOUT_MS = 2500;
 export interface ApiIdea {
   id: string;
   run_id: string | null;
+  ptp_number: number | null;
   title: string;
   description: string;
   source_url: string;
@@ -29,6 +31,52 @@ export interface ApiIdea {
   reasoning: string | null;
   status: string;
   discovered_at: string;
+}
+
+export interface ApiShowcaseItem {
+  ptp_number: number;
+  idea_id: string;
+  run_id: string | null;
+  title: string;
+  description: string;
+  source_url: string;
+  score: number | null;
+  status: string;
+  stage: "validated" | "building" | "live";
+  opportunity_id: string | null;
+  opportunity_status: string | null;
+  build_id: string | null;
+  build_status: string | null;
+  deploy_url: string | null;
+  discovered_at: string;
+}
+
+export interface ApiShowcaseDetail extends ApiShowcaseItem {
+  reasoning: string | null;
+  opportunity_dossier: string | null;
+  build_dossier: string | null;
+  events: {
+    agent: string;
+    event_type: string;
+    message: string;
+    duration_ms: number | null;
+    created_at: string;
+  }[];
+}
+
+export interface ApiSearchResult {
+  outcome: string;
+  message: string;
+  run_id: string | null;
+  matches: ApiIdea[];
+}
+
+export interface ApiPendingReview {
+  token: string;
+  run_id: string;
+  created_at: string;
+  expires_at: string;
+  idea: ApiIdea;
 }
 
 export interface ApiOpportunity {
@@ -45,6 +93,7 @@ export interface ApiBuild {
   opportunity_id: string;
   run_id: string;
   status: string;
+  deploy_url: string | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -70,6 +119,8 @@ export interface ApiEvent {
 export interface ApiRun {
   id: string;
   topic: string;
+  source: string;
+  keyword: string | null;
   status: string;
   error: string | null;
   created_at: string;
@@ -107,6 +158,9 @@ export interface ApiCosts {
   input_tokens: number;
   output_tokens: number;
   estimated_cost_usd: number;
+  today_usd: number;
+  daily_ceiling_usd: number;
+  ceiling_exceeded: boolean;
   by_agent: ApiCostByAgent[];
   by_model: ApiCostByModel[];
 }
@@ -172,4 +226,15 @@ export function getBuild(id: string, opts?: GetOptions): Promise<ApiBuildDetail 
 
 export function getCosts(opts?: GetOptions): Promise<ApiCosts | null> {
   return get<ApiCosts>("/api/v1/costs", opts);
+}
+
+export function getShowcase(opts?: GetOptions): Promise<ApiShowcaseItem[] | null> {
+  return get<ApiShowcaseItem[]>("/api/v1/showcase", opts);
+}
+
+export function getShowcaseItem(
+  ptpNumber: number,
+  opts?: GetOptions,
+): Promise<ApiShowcaseDetail | null> {
+  return get<ApiShowcaseDetail>(`/api/v1/showcase/${ptpNumber}`, opts);
 }

@@ -40,9 +40,37 @@ def get_engine() -> AsyncEngine:
     return _engine
 
 
+# Columns added after a table first shipped. `create_all` only creates
+# missing *tables*, never alters existing ones — without this, a database
+# created before these columns existed fails at the first query that
+# references them. SQLite ADD COLUMN is cheap and idempotent-by-check here;
+# a real migration tool (Alembic) replaces this the moment the schema story
+# gets more complicated than additive nullable columns.
+_ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
+    "runs": [("source", "VARCHAR(20) DEFAULT 'operator'"), ("keyword", "TEXT")],
+    "ideas": [("ptp_number", "INTEGER")],
+    "builds": [("deploy_url", "TEXT")],
+}
+
+
+def _apply_additive_columns(sync_conn) -> None:
+    from sqlalchemy import text
+
+    for table, columns in _ADDITIVE_COLUMNS.items():
+        rows = sync_conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
+        if not rows:  # table doesn't exist yet; create_all handles it
+            continue
+        existing = {row[1] for row in rows}
+        for name, ddl in columns:
+            if name not in existing:
+                sync_conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+
+
 async def init_db() -> None:
     engine = get_engine()
     async with engine.begin() as conn:
+        if engine.url.get_backend_name().startswith("sqlite"):
+            await conn.run_sync(_apply_additive_columns)
         await conn.run_sync(Base.metadata.create_all)
 
 

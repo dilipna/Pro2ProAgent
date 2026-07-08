@@ -25,6 +25,7 @@ class IdeaOut(BaseModel):
 
     id: str
     run_id: str | None
+    ptp_number: int | None
     title: str
     description: str
     source_url: str
@@ -39,6 +40,8 @@ class RunOut(BaseModel):
 
     id: str
     topic: str
+    source: str
+    keyword: str | None
     status: str
     error: str | None
     created_at: datetime
@@ -72,6 +75,7 @@ class BuildOut(BaseModel):
     opportunity_id: str
     run_id: str
     status: str
+    deploy_url: str | None
     created_at: datetime
     completed_at: datetime | None
 
@@ -117,5 +121,71 @@ class CostsOut(BaseModel):
     input_tokens: int
     output_tokens: int
     estimated_cost_usd: float
+    today_usd: float
+    daily_ceiling_usd: float
+    ceiling_exceeded: bool
     by_agent: list[CostByAgentOut]
     by_model: list[CostByModelOut]
+
+
+# --- Showcase (public problem-to-product records) -----------------------------
+
+
+class ShowcaseItemOut(BaseModel):
+    ptp_number: int
+    idea_id: str
+    run_id: str | None
+    title: str
+    description: str
+    source_url: str
+    score: int | None
+    status: str
+    stage: str  # validated | building | live
+    opportunity_id: str | None
+    opportunity_status: str | None
+    build_id: str | None
+    build_status: str | None
+    deploy_url: str | None
+    discovered_at: datetime
+
+
+class ShowcaseDetailOut(ShowcaseItemOut):
+    reasoning: str | None = None
+    opportunity_dossier: str | None = None  # OpportunityDossier JSON
+    build_dossier: str | None = None  # BuildDossier JSON
+    events: list[dict] = Field(default_factory=list)
+
+
+# --- Public keyword search ------------------------------------------------------
+
+
+class SearchCreate(BaseModel):
+    keyword: str = Field(min_length=3, max_length=80)
+
+
+class SearchOut(BaseModel):
+    # started | deduplicated | rate_limited | blocked | budget_exhausted
+    outcome: str
+    message: str
+    run_id: str | None = None
+    matches: list[IdeaOut] = Field(default_factory=list)
+
+
+# --- Console approval queue -----------------------------------------------------
+
+
+class PendingReviewOut(BaseModel):
+    token: str
+    run_id: str
+    created_at: datetime
+    expires_at: datetime
+    idea: IdeaOut
+
+
+class ReviewDecisionIn(BaseModel):
+    decision: str = Field(pattern="^(approve|reject)$")
+
+
+class ReviewDecisionOut(BaseModel):
+    decision: str
+    run_resumed: bool

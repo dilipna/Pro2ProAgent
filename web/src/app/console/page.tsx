@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getCosts, getOpportunities, getRuns, getStats } from "@/lib/api";
+import { ApprovalQueue } from "@/components/approval-queue";
 import { Wordmark } from "@/components/nav";
 
 // Operations view: metrics must be current, never a stale cached render.
@@ -24,7 +25,7 @@ const MODULES: {
   {
     name: "Orchestration",
     detail:
-      "Supervisor graph routing Research and Analyst; a second build-squad subgraph (PM/Architect/Engineer/QA) scaffolds completed opportunities on manual trigger.",
+      "Supervisor graph routing Research and Analyst; a second build-squad subgraph (PM/Architect/Engineer/QA) builds every approved opportunity and publishes it to its own live URL on QA pass.",
     stack: "LangGraph · MCP",
     status: "live",
   },
@@ -158,8 +159,15 @@ async function RecentActivity() {
                   className="glass flex items-center justify-between rounded-xl px-4 py-3 text-sm transition-colors hover:border-maroon-700/50"
                 >
                   <span className="truncate text-mist-200">{r.topic}</span>
-                  <span className="ml-3 shrink-0 font-mono text-[10px] uppercase tracking-[0.1em] text-mist-600">
-                    {r.status}
+                  <span className="ml-3 flex shrink-0 items-center gap-2">
+                    {r.source === "search" && (
+                      <span className="rounded-full border hairline px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] text-maroon-300">
+                        search{r.keyword ? ` · ${r.keyword.slice(0, 18)}` : ""}
+                      </span>
+                    )}
+                    <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-mist-600">
+                      {r.status}
+                    </span>
                   </span>
                 </Link>
               </li>
@@ -227,13 +235,28 @@ async function CostPanel() {
         </div>
       ) : (
         <div className="glass rounded-2xl p-6">
-          <div className="grid grid-cols-3 gap-6 border-b hairline pb-6 sm:grid-cols-4">
+          {costs.ceiling_exceeded && (
+            <p className="mb-6 rounded-xl border border-maroon-700/50 bg-[rgba(194,53,83,0.08)] px-4 py-3 text-sm text-maroon-200">
+              Today&apos;s estimated spend ({formatCost(costs.today_usd)}) has crossed the daily
+              ceiling of {formatCost(costs.daily_ceiling_usd)} — public keyword search stops
+              starting new runs until it resets.
+            </p>
+          )}
+          <div className="grid grid-cols-3 gap-6 border-b hairline pb-6 sm:grid-cols-5">
             <div className="flex flex-col gap-1.5">
               <span className="font-mono text-2xl tracking-tight text-mist-50">
                 {formatCost(costs.estimated_cost_usd)}
               </span>
               <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-mist-600">
                 estimated spend
+              </span>
+            </div>
+            <div className="hidden flex-col gap-1.5 sm:flex">
+              <span className="font-mono text-2xl tracking-tight text-mist-50">
+                {formatCost(costs.today_usd)}
+              </span>
+              <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-mist-600">
+                today · cap {formatCost(costs.daily_ceiling_usd)}
               </span>
             </div>
             <div className="flex flex-col gap-1.5">
@@ -334,6 +357,8 @@ export default function ConsolePage() {
         </div>
 
         <LiveMetrics />
+
+        <ApprovalQueue />
 
         <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {MODULES.map((m, i) => (
