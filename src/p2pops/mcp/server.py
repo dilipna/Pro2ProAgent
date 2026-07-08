@@ -18,6 +18,7 @@ from mcp.server.fastmcp import FastMCP
 
 from p2pops.tools.hn import search_hn
 from p2pops.tools.web import fetch_article_text
+from p2pops.tools.websearch import search_web as _search_web
 
 mcp = FastMCP("p2pops-research")
 
@@ -40,6 +41,20 @@ def search_hacker_news(query: str, limit: int = MAX_SEARCH_RESULTS) -> list[dict
     capped_limit = min(limit, MAX_SEARCH_RESULTS)
     stories = [story.model_dump() for story in search_hn(query, limit=capped_limit)]
     return stories or [{"info": f"No Hacker News results found for '{query}'."}]
+
+
+@mcp.tool()
+def search_web(query: str, limit: int = MAX_SEARCH_RESULTS) -> list[dict]:
+    """Search the general web (beyond Hacker News) for pages matching
+    `query` — blogs, forums, docs, issue trackers, anywhere indexed.
+
+    Same non-empty-return rule as search_hacker_news: an empty MCP content
+    list is rejected outright by some providers, so zero matches (or a
+    search backend hiccup) yields an explicit one-item placeholder.
+    """
+    capped_limit = min(limit, MAX_SEARCH_RESULTS)
+    results = [result.model_dump() for result in _search_web(query, limit=capped_limit)]
+    return results or [{"info": f"No web results found for '{query}'."}]
 
 
 @mcp.tool()

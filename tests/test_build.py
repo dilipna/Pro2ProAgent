@@ -102,7 +102,13 @@ def build_fake_structured(*, qa_rounds_to_clean: int, critical_component: str = 
     return fake
 
 
-async def run_build(monkeypatch, *, qa_rounds_to_clean: int = 1, critical_component: str = "API Service"):
+async def run_build(
+    monkeypatch,
+    *,
+    qa_rounds_to_clean: int = 1,
+    critical_component: str = "API Service",
+    ptp_number: int | None = None,
+):
     monkeypatch.setattr(
         venture_agents,
         "_structured",
@@ -141,6 +147,7 @@ async def run_build(monkeypatch, *, qa_rounds_to_clean: int = 1, critical_compon
             "build_id": build.id,
             "opportunity_id": opportunity.id,
             "dossier": dossier_in,
+            "ptp_number": ptp_number,
         }
     )
     return run, build

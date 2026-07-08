@@ -1,4 +1,5 @@
-import { getIdeas } from "@/lib/api";
+import Link from "next/link";
+import { getShowcase, type ApiShowcaseItem } from "@/lib/api";
 import { CASES, type CaseStatus, type CaseStudy } from "@/lib/cases";
 import { Reveal } from "./reveal";
 
@@ -23,32 +24,48 @@ function clamp(text: string, max = 240): string {
   return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`;
 }
 
+const STAGE_TO_STATUS: Record<ApiShowcaseItem["stage"], CaseStatus> = {
+  validated: "validated",
+  building: "building",
+  live: "shipped",
+};
+
+const STAGE_ORDER: Record<ApiShowcaseItem["stage"], number> = {
+  live: 0,
+  building: 1,
+  validated: 2,
+};
+
+function toCase(item: ApiShowcaseItem): CaseStudy {
+  const id = `PTP-${String(item.ptp_number).padStart(3, "0")}`;
+  return {
+    id,
+    title: item.title,
+    insight: clamp(item.description),
+    score: item.score ?? 0,
+    source: sourceLabel(item.source_url),
+    status: STAGE_TO_STATUS[item.stage],
+    liveUrl: item.deploy_url,
+    storyHref: `/showcase/${id.toLowerCase()}`,
+  };
+}
+
 /**
- * Top pipeline-validated ideas (analyst-shortlisted or human-approved),
- * or the seeded cases when the API is down or has too few to fill the
- * grid — three cards or none, a partial row reads as broken.
+ * Pipeline-numbered problems with their live lifecycle stage (shipped
+ * first), topped up with the seeded cases so the grid always shows exactly
+ * three cards — a partial row reads as broken, and the seeds are real
+ * early pipeline output.
  */
 async function loadCases(): Promise<CaseStudy[]> {
-  const ideas = await getIdeas();
-  const validated = (ideas ?? []).filter(
-    (idea) => idea.status === "approved" || idea.status === "shortlisted",
-  );
-  if (validated.length < 3) return CASES;
-  return [...validated]
+  const items = await getShowcase();
+  const fromApi = [...(items ?? [])]
     .sort(
-      (a, b) =>
-        (b.score ?? 0) - (a.score ?? 0) ||
-        Number(b.status === "approved") - Number(a.status === "approved"),
+      (a, b) => STAGE_ORDER[a.stage] - STAGE_ORDER[b.stage] || b.ptp_number - a.ptp_number,
     )
     .slice(0, 3)
-    .map((idea, i) => ({
-      id: `PTP-${String(i + 1).padStart(3, "0")}`,
-      title: idea.title,
-      insight: clamp(idea.description),
-      score: idea.score ?? 0,
-      source: sourceLabel(idea.source_url),
-      status: "validated" as const,
-    }));
+    .map(toCase);
+  if (fromApi.length >= 3) return fromApi;
+  return [...fromApi, ...CASES.filter((c) => !fromApi.some((f) => f.id === c.id))].slice(0, 3);
 }
 
 function ScoreMark({ score }: { score: number }) {
@@ -100,11 +117,31 @@ export async function Showcase() {
                 </div>
 
                 <h3 className="mt-6 text-pretty text-xl leading-snug tracking-tight">
-                  {c.title}
+                  {c.storyHref ? (
+                    <Link
+                      href={c.storyHref}
+                      className="transition-colors hover:text-maroon-200"
+                    >
+                      {c.title}
+                    </Link>
+                  ) : (
+                    c.title
+                  )}
                 </h3>
                 <p className="mt-4 flex-1 text-sm leading-relaxed text-mist-300">
                   {c.insight}
                 </p>
+
+                {c.liveUrl && (
+                  <a
+                    href={c.liveUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="ember-gloss mt-6 self-start rounded-full px-5 py-2.5 text-sm font-medium text-mist-50 shadow-ember-sm transition-shadow hover:shadow-ember"
+                  >
+                    Visit the live product ↗
+                  </a>
+                )}
 
                 <div className="mt-8 flex items-end justify-between border-t hairline pt-6">
                   <ScoreMark score={c.score} />

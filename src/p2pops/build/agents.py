@@ -53,19 +53,25 @@ def _build_context(dossier: OpportunityDossier) -> str:
 
 
 async def write_plan(ctx: str) -> BuildPlan:
-    """Success criteria: 3-8 features, P0 first; tech choices grounded in
-    the actual product vision, not generic boilerplate; non-goals stated
-    so scope can't silently creep during Architect/Engineer."""
+    """Success criteria: 3-8 features, P0 first; every feature implementable
+    as a self-contained client-side web app (the v1 delivery constraint);
+    non-goals stated so scope can't silently creep during Architect/Engineer."""
     return await venture_agents._structured(
         BuildPlan,
         ctx
         + "\n\nYou are the Product Manager. Turn this validated opportunity into a "
         "bounded v1 build plan: 3-8 features ordered by priority (P0 = must ship "
         "to prove the wedge, P1/P2 = fast follow), each with acceptance criteria "
-        "concrete enough for an engineer to build against. Recommend a tech stack "
-        "per applicable layer (backend, frontend, database, infra) with a "
-        "one-line reason each. List explicit non-goals for v1 — things a team "
-        "would be tempted to add that must wait.",
+        "concrete enough for an engineer to build against.\n\n"
+        "HARD DELIVERY CONSTRAINT for v1: the product ships as a self-contained "
+        "client-side web application — static HTML/CSS/JavaScript that runs "
+        "entirely in the browser, persisting data with localStorage, with no "
+        "server, no build step, and no external API dependency. Choose P0 "
+        "features that deliver genuine working value inside that constraint "
+        "(interactive tools, calculators, analyzers, trackers, checklists with "
+        "real logic — not a marketing page). Anything that truly needs a "
+        "backend goes in non_goals for v1. Tech stack choices must reflect "
+        "this constraint (frontend: vanilla HTML/CSS/JS; storage: localStorage).",
         agent="build/pm",
         tier="builder",
     )
@@ -79,12 +85,18 @@ async def design_architecture(ctx: str, plan: BuildPlan) -> ArchitectureSpec:
         ArchitectureSpec,
         ctx
         + f"\nBUILD PLAN: {plan.model_dump_json()}"
-        + "\n\nYou are the Architect. Design the v1 system: 3-6 components that "
-        "together cover every P0 feature (no more — this is a scaffold, not a "
-        "platform). For each component, name a concrete technology plainly (e.g. "
-        "'FastAPI service', 'Next.js frontend', 'Postgres schema') so it's "
-        "unambiguous what kind of file gets scaffolded for it. Define the data "
-        "model the components share, and sketch the API surface between them.",
+        + "\n\nYou are the Architect. Design the v1 system: exactly 3 components "
+        "that together cover every P0 feature, one per browser file of a "
+        "self-contained client-side web app:\n"
+        "1. the HTML page (tech: 'HTML page') — full semantic markup, every "
+        "screen/section/control the features need, ids/classes the JS hooks into;\n"
+        "2. the application logic (tech: 'JavaScript browser logic with "
+        "localStorage') — all interactivity, state, and persistence;\n"
+        "3. the stylesheet (tech: 'CSS stylesheet') — the complete visual design.\n"
+        "No server components: this app runs from static files alone. Define the "
+        "shared data model (the exact object shapes stored in localStorage) and "
+        "the api_surface as the DOM element ids / JS function contracts the "
+        "three files share — be precise, the engineers build against these.",
         agent="build/architect",
         tier="builder",
     )
@@ -97,9 +109,9 @@ async def write_scaffold(
     component: ComponentSpec,
     qa_feedback: str = "",
 ) -> ScaffoldContent:
-    """Success criteria: a genuine scaffold (real structure, explicit
-    TODOs), not a placeholder comment; consistent with the shared data
-    model and api_surface; directly addresses qa_feedback when present."""
+    """Success criteria: a complete, working file — every feature wired,
+    nothing stubbed; consistent with the shared data model and api_surface;
+    directly addresses qa_feedback when present."""
     feedback_block = f"\nQA FEEDBACK TO ADDRESS: {qa_feedback}" if qa_feedback else ""
     return await venture_agents._structured(
         ScaffoldContent,
@@ -108,15 +120,23 @@ async def write_scaffold(
         + f"\nARCHITECTURE: {architecture.model_dump_json()}"
         + f"\n\nCOMPONENT: {component.name}\n{component.model_dump_json()}"
         + feedback_block
-        + f"\n\nYou are the Engineer for the '{component.name}' component. Write its "
-        "scaffold file: real structure (imports, key functions/classes/routes/"
-        "types as appropriate to its tech), explicit TODO markers for what a "
-        "human implements next, and comments only where a design decision needs "
-        "explaining. Stay consistent with the shared data model and api_surface. "
-        "This is a scaffold, not a finished implementation.",
+        + f"\n\nYou are the Engineer for the '{component.name}' component of a "
+        "self-contained client-side web app (static HTML/CSS/JS, no build "
+        "step, no server, no external libraries or CDNs). Write the COMPLETE, "
+        "WORKING file for this component — this ships to real users as-is, so "
+        "no TODOs, no placeholder stubs, no unimplemented buttons. Every P0 "
+        "feature this component is responsible for must actually work when "
+        "the files are opened in a browser. Stay exactly consistent with the "
+        "shared data model (localStorage shapes) and api_surface (element ids "
+        "/ function contracts) so the three files work together. Content only "
+        "— no markdown fences around the code.",
         agent="build/engineer",
+        # Stays on the default tier deliberately: complete files need a big
+        # max_tokens, and the builder model (gpt-oss-120b) sits on an 8k TPM
+        # ceiling on this account (ADR-0005) — prompt + a full file would be
+        # a permanent 413, not a retryable 429. The default model has 30k.
         tier="default",
-        max_tokens=3072,
+        max_tokens=6144,
     )
 
 
@@ -126,21 +146,27 @@ async def review_scaffold(
     """Success criteria: this is a structured document review, not code
     execution — findings reference what's actually written in each file;
     verdict follows from the issues, mirroring stress_test's own rule."""
-    files_block = "\n".join(f"--- {f.component} ({f.path}) ---\n{f.content[:2000]}" for f in files)
+    files_block = "\n".join(f"--- {f.component} ({f.path}) ---\n{f.content[:3500]}" for f in files)
     return await venture_agents._structured(
         QAReport,
         ctx
         + f"\nBUILD PLAN: {plan.model_dump_json()}"
         + f"\nARCHITECTURE: {architecture.model_dump_json()}"
-        + f"\n\nSCAFFOLD FILES:\n{files_block}"
-        + "\n\nYou are QA. Review these scaffold files against the build plan and "
-        "architecture spec as a structured document review — you are not "
-        "executing any code. Flag: missing P0 coverage, inconsistency with the "
-        "shared data model or api_surface, and any component whose scaffold "
-        "doesn't match its stated responsibility. Severity: critical = blocks "
-        "the scaffold from being a usable starting point; major = should fix "
-        "before building on it; minor = polish. Verdict must follow from your "
-        "own issues: 'blocked' if any critical issue has no credible fix.",
+        + f"\n\nPRODUCT FILES (each truncated for review):\n{files_block}"
+        + "\n\nYou are QA for a shipping product. Review these files against the "
+        "build plan and architecture spec as a structured document review — "
+        "you are not executing any code. This app deploys to real users as "
+        "static files, so flag as critical anything that would make it not "
+        "work in a browser: unimplemented or stubbed P0 features, JS that "
+        "references element ids the HTML doesn't define (within the reviewed "
+        "portion), broken references between the three files, use of external "
+        "libraries/CDNs or a server the app doesn't have. Major = works but "
+        "deviates from the data model / api_surface; minor = polish. Verdict "
+        "must follow from your own issues: 'blocked' if any critical issue "
+        "has no credible fix. Do not flag file truncation itself as an issue.",
         agent="build/qa",
-        tier="builder",
+        # Default tier for the same 8k-TPM reason as the Engineer: QA's
+        # prompt now carries three real product files, which alone would
+        # crowd the builder model's ceiling into permanent-413 territory.
+        tier="default",
     )

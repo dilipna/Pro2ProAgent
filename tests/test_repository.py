@@ -79,6 +79,27 @@ async def test_cost_summary_empty_is_zeroed_not_null(db):
         "input_tokens": 0,
         "output_tokens": 0,
         "estimated_cost_usd": 0.0,
+        "today_usd": 0.0,
+        "daily_ceiling_usd": 1.0,
+        "ceiling_exceeded": False,
         "by_agent": [],
         "by_model": [],
     }
+
+
+async def test_cost_summary_today_feeds_ceiling_flag(db, monkeypatch):
+    from p2pops.config import get_settings
+
+    await repo.record_llm_call("venture/validator", "groq", "model-a", 100, 50, 0.75)
+    summary = await repo.cost_summary()
+    assert summary["today_usd"] == 0.75
+    assert summary["ceiling_exceeded"] is False
+
+    monkeypatch.setenv("DAILY_COST_CEILING_USD", "0.5")
+    get_settings.cache_clear()
+    try:
+        summary = await repo.cost_summary()
+        assert summary["daily_ceiling_usd"] == 0.5
+        assert summary["ceiling_exceeded"] is True
+    finally:
+        get_settings.cache_clear()

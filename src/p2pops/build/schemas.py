@@ -168,4 +168,7 @@ class BuildDossier(BaseModel):
         default_factory=list, description="Append-only across rounds -- the argument, not just the conclusion"
     )
     gates: list[GateResult] = Field(default_factory=list)
+    deploy_url: str | None = Field(
+        default=None, description="Public URL of the published product; None = built but not published"
+    )
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())

@@ -31,6 +31,10 @@ class Run(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
     topic: Mapped[str] = mapped_column(Text)
+    # operator (manual POST /runs / CLI) | search (public keyword search)
+    source: Mapped[str] = mapped_column(String(20), default="operator")
+    # The visitor keyword that scoped this run, when source == "search".
+    keyword: Mapped[str | None] = mapped_column(Text, default=None)
     # running | awaiting_review | building | completed | failed
     status: Mapped[str] = mapped_column(String(20), default="running")
     error: Mapped[str | None] = mapped_column(Text, default=None)
@@ -68,6 +72,10 @@ class Idea(Base):
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
     run_id: Mapped[str | None] = mapped_column(ForeignKey("runs.id"), index=True, default=None)
+    # Public showcase number (PTP-XXX), assigned once at shortlist time and
+    # never reused. 1-3 are reserved for the pre-database seeded showcase
+    # cards, so database numbering starts at 4 (repository.save_idea).
+    ptp_number: Mapped[int | None] = mapped_column(Integer, unique=True, index=True, default=None)
     title: Mapped[str] = mapped_column(Text)
     description: Mapped[str] = mapped_column(Text)
     source_url: Mapped[str] = mapped_column(Text)
@@ -118,8 +126,30 @@ class Build(Base):
     # scaffolding | complete | needs_revision | failed
     status: Mapped[str] = mapped_column(String(20), default="scaffolding", index=True)
     dossier: Mapped[str | None] = mapped_column(Text, default=None)
+    # Public URL of the deployed product, set by the publish stage on a
+    # successful Vercel deploy + smoke check. None = built but not published.
+    deploy_url: Mapped[str | None] = mapped_column(Text, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+
+class SearchRequest(Base):
+    """One public keyword-search submission — the audit/rate-limit record.
+
+    Every submission gets a row regardless of outcome, so per-client and
+    global rate limits are computed from data, not process memory (survives
+    restarts, honest across replicas)."""
+
+    __tablename__ = "search_requests"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    keyword: Mapped[str] = mapped_column(Text)
+    normalized: Mapped[str] = mapped_column(Text, index=True)  # lowercased/collapsed dedupe key
+    client_id: Mapped[str] = mapped_column(String(64), index=True)  # hashed caller IP, never the raw address
+    run_id: Mapped[str | None] = mapped_column(ForeignKey("runs.id"), default=None)
+    # started | deduplicated | rate_limited | blocked | budget_exhausted
+    outcome: Mapped[str] = mapped_column(String(20))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
 class LlmCall(Base):
