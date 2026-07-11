@@ -94,15 +94,13 @@ async def design_architecture(ctx: str, plan: BuildPlan) -> ArchitectureSpec:
         "2. the application logic (tech: 'JavaScript browser logic with "
         "localStorage') — all interactivity, state, and persistence;\n"
         "3. the stylesheet (tech: 'CSS stylesheet') — the complete visual design.\n"
-        "No server components: this app runs from static files alone. Define the "
-        "shared data model (the exact object shapes stored in localStorage) and "
-        "the api_surface as the DOM element ids / JS function contracts the "
-        "three files share — be precise, the engineers build against these. "
-        "STRICT OUTPUT RULE: emit every property of the schema on every "
-        "object — including 'relationships' (use [] when none), 'note' (use "
-        "'' when none), 'key_interfaces', and 'depends_on' — never omit a "
-        "key. (The structured-output validator rejects missing keys "
-        "outright; observed live as 4/4 failed generations.)",
+        "No server components: this app runs from static files alone. Write "
+        "data_model as one compact sketch of the exact localStorage keys and "
+        "JSON shapes, and api_surface as the DOM element ids / JS function "
+        "contracts the three files share — be precise, the engineers build "
+        "against these. STRICT OUTPUT RULE: emit every property of the "
+        "schema on every object — including 'key_interfaces' and "
+        "'depends_on' (use [] when none) — never omit a key.",
         agent="build/architect",
         # Default tier: a live run exhausted all retries on the builder
         # model's 8k TPM ceiling once these instructions grew (reasoning
@@ -224,20 +222,24 @@ async def review_scaffold(
         + "\n\nYou are QA for a shipping product. Review these files against the "
         "build plan and architecture spec as a structured document review — "
         "you are not executing any code. This app deploys to real users as "
-        "static files, so flag as critical anything that would make it not "
-        "work in a browser: unimplemented or stubbed P0 features, ids listed "
-        "as missing by the reference audit above, use of external "
-        "libraries/CDNs or a server the app doesn't have. In `component`, "
-        "use the EXACT component name from the architecture, nothing "
-        "appended. Major = works but deviates from the data model / "
-        "api_surface; minor = polish. Verdict must follow from your own "
-        "issues: 'blocked' if any critical issue has no credible fix. HARD "
-        "RULES: id-existence findings must come ONLY from the reference "
+        "static files.\n"
+        "SEVERITY RUBRIC (apply strictly): critical is reserved for exactly "
+        "three things — (1) a P0 feature that visibly does nothing when a "
+        "user tries it (a button wired to no handler, a stub/placeholder "
+        "implementation), (2) an id listed as missing by the reference audit "
+        "above, (3) a dependency on an external library/CDN or a server the "
+        "app doesn't have. EVERYTHING ELSE IS AT MOST MAJOR: missing input "
+        "validation, unhandled empty/edge cases, an unpopulated optional "
+        "field, accessibility gaps, style deviations from the data model / "
+        "api_surface. Minor = polish. Verdict must follow from your own "
+        "issues: 'blocked' only if a critical issue has no credible fix.\n"
+        "HARD RULES: id-existence findings must come ONLY from the reference "
         "audit — never contradict it. Never claim a file is missing when its "
         "block appears above. Never flag truncation. Browser-compatibility "
         "speculation (older browsers, restricted localStorage, disabled JS) "
         "is never an issue at any severity — assume a modern evergreen "
-        "browser.",
+        "browser. In `component`, use the EXACT component name from the "
+        "architecture, nothing appended.",
         agent="build/qa",
         # Default tier for the same 8k-TPM reason as the Engineer: QA's
         # prompt now carries three real product files, which alone would
