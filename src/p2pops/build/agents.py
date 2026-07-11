@@ -61,8 +61,9 @@ async def write_plan(ctx: str) -> BuildPlan:
         ctx
         + "\n\nYou are the Product Manager. Turn this validated opportunity into a "
         "bounded v1 build plan: 3-8 features ordered by priority (P0 = must ship "
-        "to prove the wedge, P1/P2 = fast follow), each with acceptance criteria "
-        "concrete enough for an engineer to build against.\n\n"
+        "to prove the wedge, P1/P2 = fast follow; AT MOST 3 features may be P0 — "
+        "a v1 that ships three working features beats one that stubs six), each "
+        "with acceptance criteria concrete enough for an engineer to build against.\n\n"
         "HARD DELIVERY CONSTRAINT for v1: the product ships as a self-contained "
         "client-side web application — static HTML/CSS/JavaScript that runs "
         "entirely in the browser, persisting data with localStorage, with no "
@@ -108,11 +109,21 @@ async def write_scaffold(
     architecture: ArchitectureSpec,
     component: ComponentSpec,
     qa_feedback: str = "",
+    sibling_files: list[ScaffoldFile] | None = None,
 ) -> ScaffoldContent:
     """Success criteria: a complete, working file — every feature wired,
-    nothing stubbed; consistent with the shared data model and api_surface;
+    nothing stubbed; consistent with the files already written (passed in
+    as sibling context — this is what makes JS reference real HTML ids);
     directly addresses qa_feedback when present."""
     feedback_block = f"\nQA FEEDBACK TO ADDRESS: {qa_feedback}" if qa_feedback else ""
+    siblings_block = ""
+    if sibling_files:
+        rendered = "\n".join(f"--- {f.path} (already written) ---\n{f.content[:5000]}" for f in sibling_files)
+        siblings_block = (
+            f"\n\nFILES ALREADY WRITTEN FOR THIS APP — your file must work with these exactly "
+            f"as they are (reference only element ids, classes, and functions that really exist "
+            f"in them):\n{rendered}"
+        )
     return await venture_agents._structured(
         ScaffoldContent,
         ctx
@@ -120,6 +131,7 @@ async def write_scaffold(
         + f"\nARCHITECTURE: {architecture.model_dump_json()}"
         + f"\n\nCOMPONENT: {component.name}\n{component.model_dump_json()}"
         + feedback_block
+        + siblings_block
         + f"\n\nYou are the Engineer for the '{component.name}' component of a "
         "self-contained client-side web app (static HTML/CSS/JS, no build "
         "step, no server, no external libraries or CDNs). Write the COMPLETE, "
@@ -146,7 +158,10 @@ async def review_scaffold(
     """Success criteria: this is a structured document review, not code
     execution — findings reference what's actually written in each file;
     verdict follows from the issues, mirroring stress_test's own rule."""
-    files_block = "\n".join(f"--- {f.component} ({f.path}) ---\n{f.content[:3500]}" for f in files)
+    # Near-full files: a truncated HTML page makes "JS references an id the
+    # HTML doesn't define" findings unfalsifiable (observed live round 2).
+    # QA runs on the 30k-TPM default tier, which absorbs this comfortably.
+    files_block = "\n".join(f"--- {f.component} ({f.path}) ---\n{f.content[:9000]}" for f in files)
     return await venture_agents._structured(
         QAReport,
         ctx
@@ -158,12 +173,15 @@ async def review_scaffold(
         "you are not executing any code. This app deploys to real users as "
         "static files, so flag as critical anything that would make it not "
         "work in a browser: unimplemented or stubbed P0 features, JS that "
-        "references element ids the HTML doesn't define (within the reviewed "
-        "portion), broken references between the three files, use of external "
-        "libraries/CDNs or a server the app doesn't have. Major = works but "
-        "deviates from the data model / api_surface; minor = polish. Verdict "
-        "must follow from your own issues: 'blocked' if any critical issue "
-        "has no credible fix. Do not flag file truncation itself as an issue.",
+        "references element ids the HTML verifiably does not define, broken "
+        "references between the three files, use of external libraries/CDNs "
+        "or a server the app doesn't have. In `component`, use the EXACT "
+        "component name from the architecture, nothing appended. Major = "
+        "works but deviates from the data model / api_surface; minor = "
+        "polish. Verdict must follow from your own issues: 'blocked' if any "
+        "critical issue has no credible fix. Do not flag file truncation "
+        "itself, and do not report an id as undefined unless you can see the "
+        "full HTML and it is genuinely absent.",
         agent="build/qa",
         # Default tier for the same 8k-TPM reason as the Engineer: QA's
         # prompt now carries three real product files, which alone would

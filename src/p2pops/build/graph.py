@@ -16,18 +16,20 @@ credentials are missing or the deploy fails.
 Design invariants (mirroring venture/graph.py):
 - LLM agents produce artifacts; *code* makes the qa_gate pass/fail decision
   and every scaffold file's path/language (never asked of the LLM).
-- Every node appends a RunEvent; Engineer's fan-out logs once per
-  component, not one summary event, keeping AgentOps granularity
-  consistent with every other stage.
-- One component's LLM failure never aborts the whole build
-  (asyncio.gather(..., return_exceptions=True)) -- the same per-item
-  containment guarantee runner.execute_venture already provides at the
-  idea level, extended down into a single node's internal fan-out.
-- The revision loop is bounded (MAX_QA_ROUNDS=1) and honestly surfaces
-  `needs_revision` rather than silently accepting or looping forever.
+- Every node appends a RunEvent; Engineer logs once per component, not one
+  summary event, keeping AgentOps granularity consistent with every other
+  stage.
+- One component's LLM failure never aborts the whole build (per-component
+  try/except in _run_engineer) -- the same per-item containment guarantee
+  runner.execute_venture already provides at the idea level.
+- Engineers run sequentially in dependency order with sibling files in
+  context (see _run_engineer for why the original parallel fan-out was
+  retired with the working-MVP pivot).
+- The revision loop is bounded (MAX_QA_ROUNDS, one revision round) and
+  honestly surfaces `needs_revision` rather than silently accepting or
+  looping forever.
 """
 
-import asyncio
 import time
 from typing import TypedDict
 
@@ -100,46 +102,64 @@ async def architect_node(state: BuildState) -> dict:
     return {"architecture": architecture, "targets": targets}
 
 
+# Build order for the browser-MVP pivot: markup first, then styles, then the
+# logic that has to reference real element ids. Anything else goes last.
+_TARGET_ORDER = {"html": 0, "css": 1, "javascript": 2}
+
+
+def _engineer_order(state: BuildState, components: list[ComponentSpec]) -> list[ComponentSpec]:
+    return sorted(components, key=lambda c: _TARGET_ORDER.get(state["targets"][c.name][1], 9))
+
+
 async def _run_engineer(
     state: BuildState,
     components: list[ComponentSpec],
     feedback_by_component: dict[str, str] | None = None,
+    existing_files: list[ScaffoldFile] | None = None,
 ) -> list[ScaffoldFile]:
-    """Fans out one LLM call per component via asyncio.gather. Deliberately
-    not LangGraph's Send/map-reduce API: this codebase never uses Send,
-    the fan-out is bounded/known-at-runtime/non-recursive, and a single
-    node collecting gather() results into one plain dict return needs no
-    reducer fields -- Send would add a second orchestration primitive for
-    zero behavioral benefit here."""
-    feedback_by_component = feedback_by_component or {}
+    """One LLM call per component, run SEQUENTIALLY in dependency order
+    (HTML -> CSS -> JS) with every already-written file in the prompt.
 
-    async def _one(component: ComponentSpec) -> ScaffoldFile:
+    This replaced the original asyncio.gather fan-out when the build target
+    became a *working* product instead of a scaffold: parallel engineers
+    write blind against each other, and the first live MVP run failed QA
+    exactly that way (app.js referencing element ids index.html never
+    defined). Sequential-with-context trades ~10s of wall time for
+    cross-file consistency, which is the whole ballgame for a shippable
+    client-side app. Per-component failure containment is unchanged."""
+    feedback_by_component = feedback_by_component or {}
+    # During a revision round, unrevised siblings' current content is still
+    # real context — the revised JS must align with the HTML that exists.
+    written: dict[str, ScaffoldFile] = {f.component: f for f in (existing_files or [])}
+    revised: list[ScaffoldFile] = []
+
+    for component in _engineer_order(state, components):
         t0 = time.monotonic()
-        content = await agents.write_scaffold(
-            state["ctx"],
-            state["plan"],
-            state["architecture"],
-            component,
-            feedback_by_component.get(component.name, ""),
-        )
+        siblings = [f for name, f in written.items() if name != component.name]
+        try:
+            content = await agents.write_scaffold(
+                state["ctx"],
+                state["plan"],
+                state["architecture"],
+                component,
+                feedback_by_component.get(component.name, ""),
+                sibling_files=siblings,
+            )
+        except Exception as exc:
+            await _event(state, "build/engineer", "error", f"{component.name}: {exc}")
+            continue
         path, language = state["targets"][component.name]
         await _event(state, "build/engineer", "stage_completed", f"{component.name} -> {path}", t0)
-        return ScaffoldFile(
+        file = ScaffoldFile(
             component=component.name,
             path=path,
             language=language,
             content=content.content,
             key_decisions=content.key_decisions,
         )
-
-    results = await asyncio.gather(*(_one(c) for c in components), return_exceptions=True)
-    files: list[ScaffoldFile] = []
-    for component, result in zip(components, results, strict=True):
-        if isinstance(result, Exception):
-            await _event(state, "build/engineer", "error", f"{component.name}: {result}")
-            continue
-        files.append(result)
-    return files
+        written[component.name] = file
+        revised.append(file)
+    return revised
 
 
 async def engineer_node(state: BuildState) -> dict:
@@ -180,13 +200,26 @@ def route_after_qa(state: BuildState) -> str:
     return "mark_needs_revision"
 
 
+def _match_component(flagged: str, known_names: set[str]) -> str | None:
+    """QA models decorate component names ('AppLogic (app.js)' for
+    'AppLogic') — observed live, and an exact-match rule turned one decorated
+    name into a redo-everything fallback. Deterministic normalization:
+    exact, else unique containment either way, else no match."""
+    if flagged in known_names:
+        return flagged
+    lowered = flagged.lower()
+    hits = [k for k in known_names if k.lower() in lowered or lowered in k.lower()]
+    return hits[0] if len(hits) == 1 else None
+
+
 async def revise_node(state: BuildState) -> dict:
     report = state["qa_reports"][-1]
     components = state["architecture"].components
     known_names = {c.name for c in components}
     critical = report.critical_issues
-    flagged_names = {issue.component for issue in critical}
-    unmatched = flagged_names - known_names
+    resolved = {issue.component: _match_component(issue.component, known_names) for issue in critical}
+    flagged_names = {name for name in resolved.values() if name is not None}
+    unmatched = {orig for orig, name in resolved.items() if name is None}
 
     if unmatched or not flagged_names:
         # Either QA named a component that doesn't exist, or the gate
@@ -205,14 +238,15 @@ async def revise_node(state: BuildState) -> dict:
 
     feedback_by_component: dict[str, list[str]] = {}
     for issue in critical:
-        feedback_by_component.setdefault(issue.component, []).append(f"{issue.issue} (fix: {issue.fix})")
+        name = resolved.get(issue.component) or issue.component
+        feedback_by_component.setdefault(name, []).append(f"{issue.issue} (fix: {issue.fix})")
     feedback: dict[str, str] = {k: " / ".join(v) for k, v in feedback_by_component.items()}
     if not feedback:
         # No component-specific critical issues -- give every revised
         # component the overall QA reasoning so the round carries signal.
         feedback = {c.name: report.reasoning for c in to_revise}
 
-    revised_files = await _run_engineer(state, to_revise, feedback)
+    revised_files = await _run_engineer(state, to_revise, feedback, existing_files=state["scaffold_files"])
     revised_by_name = {f.component: f for f in revised_files}
     merged = [revised_by_name.get(f.component, f) for f in state["scaffold_files"]]
     merged_names = {f.component for f in merged}
