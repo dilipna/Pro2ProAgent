@@ -24,6 +24,22 @@ export interface CaseStudy {
 
 export const CASES: CaseStudy[] = [
   {
+    // The first product to complete the full loop: discovered, validated,
+    // human-approved, built by the squad, QA-passed, and deployed live by
+    // the pipeline itself (2026-07-11). Mirrored here (like the cards
+    // below) so the story survives the API being down; the live database
+    // record supersedes it whenever the API serves PTP-011 itself.
+    id: "PTP-011",
+    title: "Need for trust evaluations in AI models and agents",
+    insight:
+      "Teams adopting AI models have no lightweight way to score how much they can trust one — TrustLayer SDK evaluates model metadata into an explainable trust score, with history, bias checks, and CI/CD checklists, entirely in the browser.",
+    score: 80,
+    source: "Hacker News",
+    status: "shipped",
+    liveUrl: "https://ptp-011-trustlayer-sdk.vercel.app",
+    storyHref: "/showcase/ptp-011",
+  },
+  {
     id: "PTP-001",
     title: "Untracked token usage and surprise LLM bills in production agents",
     insight:

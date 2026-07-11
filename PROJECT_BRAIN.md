@@ -2,9 +2,9 @@
 
 > **How to use this file:** open a fresh Claude session and say "Read PROJECT_BRAIN.md and continue development." Everything needed to pick up work with zero prior context lives here. **Section 15 (Session Handoff) is the most important section and is updated at the end of every significant work session** — read it first if you're in a hurry.
 >
-> Last verified against the actual codebase: **2026-07-07**, by direct inspection (every source file read, `pytest`/`ruff` run, Docker images built and run live, Kubernetes manifests rendered, Promptfoo run live against Groq, a full live pipeline run executed against the deployed production API, and the public URLs curled and confirmed responding). Nothing in this document is aspirational unless explicitly marked "planned" or "not started."
+> Last verified against the actual codebase: **2026-07-11** (Phase B session: full test suite 78/78, live end-to-end loop run, production URLs curled, deployed console confirmed "API connected"). Nothing in this document is aspirational unless explicitly marked "planned" or "not started."
 >
-> **This project is publicly deployed.** Web: **https://protopro.vercel.app** (Vercel). API: **https://protopro-api.onrender.com** (Render, Docker-based, from `render.yaml`). Confirmed live and wired together — the deployed console shows "API connected," not the seeded fallback.
+> **This project is publicly deployed AND has shipped its first product.** Web: **https://protopro.vercel.app** (Vercel). API: **https://protopro-api.onrender.com** (Render, Docker-based, from `render.yaml`, auto-deploys on push to master). First pipeline-built product: **https://ptp-011-trustlayer-sdk.vercel.app** (story: `/showcase/ptp-011`).
 
 ---
 
@@ -82,6 +82,7 @@
 - Phase 2: frontend wired to the live API — server-side client with timeout + seeded fallback, ISR on the landing page, force-dynamic console with a live metrics strip. Verified live in both the API-up and API-down states.
 - Phase 3: LangSmith/Logfire verified live via API (not just wired); a first eval (`p2pops-eval`, dependency-free); the **build-squad subgraph** (PM → Architect → Engineer → QA) shipped and live-verified against a real opportunity; console deep views (`/console/runs/[id]`, `/console/opportunities/[id]`) rendering the full event timeline and dossier/scaffold, read-only.
 - **Phase A (2026-07-07): production foundation, complete.** Docker (both tiers, multi-stage, verified via `docker compose up`), Kubernetes manifests (`deploy/k8s/`, rendered clean via kustomize), GitHub Actions CI/CD (lint/test/build/docker/promptfoo-schema on every push; a separate manual/weekly workflow for live promptfoo evals), Promptfoo prompt-regression suite (5/5 live against Groq, calling the real agent functions), LLM cost tracking (ledger + pricing table + console panel, live-verified against a real pipeline run), and — new this session — **actual public deployment**: web on Vercel, API on Render, wired together and confirmed live end-to-end (see the banner at the top of this file for URLs).
+- **Phase B (2026-07-11): the closed loop + public search + real console data (ADR-0010).** Approval now auto-chains venture → build squad → publish; the build squad ships working client-side web MVPs (sequential engineers with sibling-file context, deterministic asset linker) and `publish.py` deploys them to their own Vercel URL with a post-deploy smoke check; PTP numbering is a database fact assigned at shortlist time; a public keyword-search endpoint runs scoped discovery behind layered spend controls; the console gained an operator approval queue, SSE live run timelines, keyword tags, and a daily cost-ceiling alert; every PTP item has a permanent story page. See §15 for exactly what was live-verified vs. shipped-but-gated.
 
 ### In Progress / Partially Implemented
 - **Build-squad scaffolds are DB-only** — real, inspectable content, but nothing writes the scaffold to an actual directory on disk yet.
@@ -283,7 +284,12 @@ Two distinct, deliberately different memory systems — do not conflate them:
 | LLM-call resilience | Done, tested | `resilience.py` | All agents | Extend to `llm.py`'s `complete()` | Low |
 | Public landing page | Done, live-wired (ISR, seeded fallback) | Next.js + `/api/v1` | — | Deeper showcase interactivity | Low |
 | Operations console | Done, live metrics + run/opportunity deep views (read-only) | Next.js + `/api/v1` | — | Per-agent cost view; live graph state visualization | Medium |
-| Build-squad scaffolding | **Done, live-verified** | PM/Architect/Engineer/QA (`build/`) | build-squad agents | Real file-tree persistence to disk (currently DB-only); richer per-language scaffolds | Medium |
+| Build-squad product MVPs (was: scaffolding) | **Done — ships working client-side web apps; auto-runs after approval** | PM/Architect/Engineer/QA (`build/`), ADR-0010 | build-squad agents | Raise pass-rate further; server-side product tier someday | High |
+| Product publishing (Vercel + smoke check) | **Done** (`publish.py`) | `VERCEL_TOKEN` | — (deterministic code) | Custom domains; deploy provider abstraction | High |
+| Public keyword search (scoped discovery) | **Done, live-verified** | `POST /api/v1/search`, `search_requests` table, keyword rail | Research/Analyst + guardrail | Semantic (not just exact) keyword dedupe | High |
+| PTP numbering + showcase lifecycle + story pages | **Done** | `ideas.ptp_number`, `/api/v1/showcase*` | — | — | High |
+| In-console approval queue | **Done** | `/api/v1/reviews/pending` (operator-token) | — (human) | — | High |
+| Console SSE live timeline + cost ceiling alert | **Done** | SSE proxy, `today_usd`/ceiling in `/costs` | — | Visual graph state (still open) | Medium |
 | Evals (homegrown) | **Done, live** | `evals/analyst_eval.py` | — (code) | Wire to Braintrust if a key becomes available; grow past N=9 | Medium |
 | Prompt regression (Promptfoo) | **Done, live-verified 5/5** | `promptfooconfig.yaml` + `evals/promptfoo_provider.py` | Analyst, Validator | Extend to Architect/Red Team/build-squad scenarios | Medium |
 | LLM cost tracking | **Done, live-verified** | `cost_tracking.py`, `pricing.py`, `LlmCall` table | All structured-output call sites | Run-scoped cost view (currently global); real per-provider billing reconciliation | Medium |
@@ -439,6 +445,13 @@ Runs manually (CLI `p2pops-build <opportunity_id>`, or protected `POST /api/v1/b
 | Promptfoo runs on a separate manual/weekly workflow, not every push | 2026-07-07 | Real LLM calls cost real money; `ci.yml`'s promptfoo step only validates config schema (free) | Run the full eval suite on every push | A prompt regression could theoretically sit undetected for up to a week between scheduled runs, or until manually triggered |
 | LLM cost ledger is global, not run-scoped | 2026-07-07 | Keeps the schema and every call site simple for a single-operator project; a `run_id` FK is a straightforward additive migration if per-run cost ever becomes a real need | Add `run_id`/`opportunity_id` FKs to `LlmCall` now | Console's cost panel shows aggregate spend, not "this run cost $X" — acceptable at current scale |
 | `include_raw=True` re-raises `parsing_error` explicitly at both cost-tracking call sites | 2026-07-07 | `with_structured_output(..., include_raw=True)` (needed to capture token usage) changes LangChain's contract from "raise on malformed output" to "return a `parsing_error` field instead" — left unhandled, this would have silently defeated ADR-0005's retry-on-`tool_use_failed` logic, since the exception `with_retry` classifies on would simply never be raised | Skip `include_raw` and estimate tokens from prompt/completion length instead | One more explicit check at each call site, but real usage numbers instead of estimates |
+| Approval auto-chains venture → build → publish (supersedes ADR-0006's manual-only trigger) | 2026-07-11 | The human approval IS the spend authorization; a second manual step between "approved" and "building" was a silent stall, not a safety layer. Still no public build trigger anywhere | Keep manual CLI-only builds | See ADR-0010 |
+| Build target = working client-side web MVP (static HTML/CSS/JS + localStorage) | 2026-07-11 | The showcase can only honestly link to something that works when opened; this is the largest unit a small model ships reliably | Scaffold-with-TODOs (old), full-stack repo generation (unreliable) | Server-side products out of v1 scope by design (ADR-0010) |
+| Engineers sequential with sibling files in context, not parallel fan-out | 2026-07-11 | First live MVP build failed QA on cross-file drift (JS referencing ids the HTML never defined) — interlocking files can't be written blind | Keep `asyncio.gather` fan-out | ~10s more wall time per build; linear in component count (ADR-0010) |
+| Deterministic asset linker (`scoring.link_assets`) guarantees HTML references every built CSS/JS | 2026-07-11 | Small models forget/misorder `<script>`/`<link>` tags — observed as a QA-blocking critical two builds running; tag insertion is a code decision, not an LLM one | Prompt harder and hope | One more deterministic post-step; runs before QA so reviews see the real product |
+| PTP numbers assigned at shortlist time in `save_idea`'s transaction; seeds hold 1–3 | 2026-07-11 | Validated problems get a public identity; rejected/duplicate noise never burns a number; DB numbering starts at 4 so it can never collide with the seeded cards | Number at discovery; renumber per page render (old showcase behavior) | Backfilled 12 historical validated ideas (PTP-005…016) in discovered-at order |
+| Public search endpoint is open; spend controls are layered, not auth-gated | 2026-07-11 | "Any visitor can point the pipeline at a topic" is the feature; per-client + global caps, keyword dedupe, cost ceiling and a keyword-tuned rail all run before any token is spent, and the human gate still guards every build | Require login/token for search | A determined botnet could exhaust the daily caps (they're cheap by design); see ADR-0010 |
+| Engineer/QA/Architect moved off the 8k-TPM builder tier | 2026-07-11 | Whole product files + grown instructions don't fit gpt-oss-120b's measured ceiling (reasoning tokens count against it); observed as permanent 413/4-strike failures, not transient 429s | Shrink prompts to fit | PM keeps the builder tier; revisit if account limits change |
 
 ---
 
@@ -447,15 +460,17 @@ Runs manually (CLI `p2pops-build <opportunity_id>`, or protected `POST /api/v1/b
 **Everything in the original "Immediate next tasks"/"Short-term milestones" from the previous handoff is now done**: Promptfoo, CI/CD, Docker Compose, and real deployment (Vercel + Render, live) all shipped and live-verified in Phase A (2026-07-07). What's left is genuinely optional polish, not core capability.
 
 ### Immediate next tasks (next session should start here)
-1. **Grow the Render deploy's durability**: confirm which Render plan is actually active (`starter` with the persistent disk, or `free`) and decide if it matches intent — `render.yaml` is pinned to `starter`, but the dashboard UI may have been used to pick differently. If on `free`, the SQLite data resets on every redeploy; document that trade-off explicitly wherever the live URL is shared (resume, README).
-2. Real file-tree persistence for build-squad scaffolds (currently DB-JSON-only, readable via the console but not `git`-able) — write `scaffold_files` to an actual directory on disk.
-3. Grow the eval dataset past N=9 and revisit `p2pops-eval`'s honest recall gap (analyst-rejected ideas never reach a human today).
-4. Add authentication in front of the now-public API's mutating endpoints beyond the optional bearer token — the gap was low-priority when everything was localhost-only; it isn't anymore (§12).
+1. **Get real email delivery live**: the user explicitly wants review-request and product-ready emails in their inbox. Everything is wired (`notify.send_review_request` + the new `send_product_ready`); the ONLY missing piece is a `RESEND_API_KEY` (free tier exists) set locally and in the Render dashboard alongside `REVIEW_EMAIL_TO`. Until then both emails log to the server console.
+2. **Confirm the production data story**: the Render DB was observed EMPTY on 2026-07-11 despite a live pipeline run having executed against it on 2026-07-07 — i.e., the data did NOT survive (free plan or disk misconfig). Decide: pay for the starter disk, or accept reset-on-redeploy and let the web tier's seeded fallback carry the showcase (that fallback now includes the shipped product story).
+3. **Prod full-loop run**: trigger a search on the live site, approve it from the live console queue (needs the `API_TOKEN` from the Render dashboard as the operator key), and let it auto-build+publish — requires `VERCEL_TOKEN` set in Render's env for the publish stage.
+4. Grow the eval dataset and revisit `p2pops-eval`'s recall gap (unchanged from last session).
+5. Raise the MVP build pass-rate (QA still blocks honestly on model quality; see §15's build-iteration story).
 
 ### Short-term milestones
 - Wire `p2pops-eval`'s report to Braintrust's hosted `Eval(...)` if/when a `BRAINTRUST_API_KEY` becomes available — the module is already structured for this.
-- Extend the Promptfoo suite to cover Architect/Red Team/build-squad scenarios (currently only Analyst + Validator).
-- Wire GitHub Actions to auto-deploy to Render/Vercel on merge to `master`, instead of the current manual `vercel deploy`/Render-dashboard-driven flow.
+- Extend the Promptfoo suite to cover Architect/Red Team/build-squad scenarios (currently only Analyst + Validator) — the MVP-build agents especially, given this session's live iteration on them.
+- Render auto-deploys on push to `master` (confirmed live 2026-07-11: the prod API picked up version 1.1 without dashboard action). Vercel web deploys are still manual `vercel deploy --prod`.
+- Semantic (Chroma) keyword dedupe for public search, beyond exact-normalized match.
 
 ### Medium-term milestones
 - Postgres migration (swap the one `database_url` connection string; schema is already ORM-defined, no rewrite needed) — this is what unlocks horizontal API scaling, since every deploy target (Compose, K8s, Render) is currently pinned to 1 API replica specifically because SQLite is single-writer.
@@ -482,6 +497,12 @@ Runs manually (CLI `p2pops-build <opportunity_id>`, or protected `POST /api/v1/b
 - **`SHORTLIST_THRESHOLD=50`, `MAX_REFINEMENT_ROUNDS=2`, `MAX_QA_ROUNDS=2`** are hardcoded module constants, not configurable — fine for now, explicitly logged as "revisit once there's a dashboard to tune them from" (Analyst) / "a real venture studio kills ideas" (venture, design stance) / "fan-out multiplies cost per round, don't raise casually" (build, cost math documented next to the constant).
 - **Build-squad scaffolds are DB-only** — `scaffold_files` content is real and inspectable via the console, but nothing writes it to an actual directory on disk yet; a human wanting to actually start from the scaffold has to copy-paste from the dossier viewer.
 - **`.gitignore` had an unanchored `build/` rule** (paired with `dist/`, meant for Python packaging's top-level build-artifact directory) that silently excluded the entire new `src/p2pops/build/` package from git — caught before committing by `git status` showing the new backend files but not the package itself. Fixed by anchoring both to the repo root (`/build/`, `/dist/`). Worth remembering if any future top-level-sounding directory name is added under `src/`.
+
+### New this session (2026-07-11)
+- **The production Render DB was found EMPTY** (`runs: 0`) despite the 2026-07-07 live verification having executed a pipeline run against it — production data does not currently survive (free-tier behavior or disk misconfig). The public site's seeded fallback carries the showcase either way; §11 task 2 is the decision point.
+- **Emails still console-logged**: `RESEND_API_KEY` remains unset (locally and presumably on Render). The user has explicitly asked for real review + product-ready emails — this is now the top of §11.
+- **A pre-existing "unique" gap**: `ideas.ptp_number` gets a UNIQUE index only on fresh databases (SQLite `ALTER TABLE ADD COLUMN` can't add constraints); migrated DBs rely on the single-writer assignment logic. Postgres migration should add the real constraint.
+- **QA truncation**: QA reviews files capped at 9000 chars each; a product whose HTML legitimately exceeds that re-opens the "unverifiable undefined-id finding" class of issue.
 
 ### Temporary implementations (explicitly logged deviations)
 - `Base.metadata.create_all` instead of Alembic migrations (ADR/phase-log-logged deviation from the original "modular monolith" plan) — fine pre-1.0 with a single developer and SQLite; must become Alembic before any real schema change lands on a populated Postgres database. **Now higher-stakes than before**: the production Render deployment runs this same `create_all` on every boot against real (if small) persisted data.
@@ -553,6 +574,16 @@ APP_BASE_URL=http://localhost:8000
 
 # --- API ---
 API_TOKEN=                     # blank = open (no auth) -- fine for local/demo only
+
+# --- Product publishing (build-squad publish stage, ADR-0010) ---
+VERCEL_TOKEN=                  # blank = publish stage skips honestly (no Live claim)
+VERCEL_TEAM_ID=                # optional; defaults to the token's default team
+
+# --- Public keyword search spend controls (ADR-0010) ---
+SEARCH_REQUESTS_PER_HOUR_PER_CLIENT=3
+SEARCH_RUNS_PER_DAY=8
+SEARCH_DEDUPE_HOURS=24
+DAILY_COST_CEILING_USD=1.0     # public search stops starting runs above this; console shows an alert
 ```
 Note: **blank values are safe** — `config.py`'s `_blank_to_none` validator normalizes `KEY=` to `None` for every optional field, fixing a real bug where this used to silently break auth (ADR-0005).
 
@@ -625,7 +656,9 @@ npx promptfoo@latest eval -c promptfooconfig.yaml --no-cache
 | `src/p2pops/pricing.py` | USD/token rate table + cost estimation | Unknown model → $0.00, never raises — pricing can't be allowed to break agent execution | Consumed by `cost_tracking.record_usage` |
 | `src/p2pops/runner.py` | Run lifecycle, owns the checkpointer | The only place that starts/resumes/executes runs, ventures, and builds | Called by `api/app.py`, `pipeline.py`, `build_cli.py` |
 | `src/p2pops/db/repository.py` | All SQL | Single place that owns data-access semantics | Used by `runner.py`, `graph.py`, `venture/graph.py`, `build/graph.py`, `api/app.py`, `cost_tracking.py` |
-| `src/p2pops/notify.py` | Email HITL delivery | Implements ADR-0002 | Called by `graph.request_review_node` |
+| `src/p2pops/notify.py` | Email HITL delivery + product-ready notification | Implements ADR-0002; `send_product_ready` closes the loop's email story | Called by `graph.request_review_node` and `build/graph.publish_node` |
+| `src/p2pops/publish.py` | Product packaging + Vercel deploy + smoke check | The Publish stage — deterministic code, honest failure modes (ADR-0010) | Called by `build/graph.publish_node`; needs `VERCEL_TOKEN` |
+| `src/p2pops/tools/websearch.py` | Keyless general web search (DuckDuckGo HTML) | Broadens Research beyond HN without a paid search API | Exposed as the `search_web` MCP tool in `mcp/server.py` |
 | `src/p2pops/mcp/server.py` | MCP tool server | Makes Research Agent's tools a real, portable MCP service | Connected to by `agents/research.py` via `langchain-mcp-adapters` |
 | `Dockerfile` / `web/Dockerfile` | Multi-stage production images | ADR-0007; the actual images running on Render/behind Vercel-adjacent infra | `docker-compose.yml`, `render.yaml`'s `dockerfilePath` |
 | `docker-compose.yml` / `.dev.yml` | One-command local startup + hot-reload override | Verified live: both containers healthy, web→api over the compose network | `deploy/README.md` |
@@ -634,7 +667,12 @@ npx promptfoo@latest eval -c promptfooconfig.yaml --no-cache
 | `.github/workflows/ci.yml` | Push-triggered CI | Lint/test/build/docker-build/promptfoo-schema, zero LLM cost | Runs on every push to the GitHub repo |
 | `.github/workflows/promptfoo.yml` | Live prompt-regression eval | Manual + weekly, real LLM calls, skips gracefully without a key | Needs `GROQ_API_KEY` configured as a GitHub Actions secret to actually run (unverified whether it is) |
 | `promptfooconfig.yaml` | Promptfoo scenario suite | 5 scenarios, live-verified 5/5 against Groq | Read by both `promptfoo eval` locally and `promptfoo.yml` in CI |
-| `web/src/lib/api.ts` | Server-side client for `/api/v1` | Feeds live pipeline data to the site with timeout + seeded-fallback semantics | Used by hero, showcase, pipeline-stats, console, cost panel, and both deep-view pages |
+| `web/src/lib/api.ts` | Server-side client for `/api/v1` | Feeds live pipeline data to the site with timeout + seeded-fallback semantics | Used by hero, showcase, pipeline-stats, console, cost panel, deep views, story pages, and the route-handler proxies |
+| `web/src/components/search.tsx` | Public keyword-search section (client) | Feature 2's visitor entry point; polls run phase after submit | POSTs to `/api/search` (route-handler proxy) |
+| `web/src/components/approval-queue.tsx` | In-console approval queue (client) | One-click approve/reject without depending on an inbox; operator key in sessionStorage only | `/api/console/reviews*` proxies → operator-protected API endpoints |
+| `web/src/components/live-timeline.tsx` | SSE live tail of a run's events (client) | Makes an in-flight run watchable in real time | `/api/console/runs/[id]/stream` SSE passthrough |
+| `web/src/app/showcase/[ptp]/page.tsx` | Permanent problem-to-product story page | Every PTP item is a durable case study, not just a card | `GET /api/v1/showcase/{ptp}` with `seed-story.ts` fallback |
+| `web/src/app/api/**/route.ts` | Route-handler proxies (search, queue, SSE) | Browser never talks to the API host directly — CORS stays untouched, caller IP forwarded for rate limits | All client components above |
 | `web/src/app/console/opportunities/[id]/page.tsx` | Opportunity + build dossier viewer | Read-only recruiter-facing view of the full venture + build-squad output | Reads `getOpportunity`/`getBuild` |
 | `web/src/app/console/runs/[id]/page.tsx` | Run event timeline viewer | Renders the AgentOps `RunEvent` timeline the console previously only linked to via raw API | Reads `getRun` |
 | `web/next.config.ts` | `output: "standalone"` | Required for the Docker image's minimal runtime stage (added Phase A) | `web/Dockerfile`'s runtime stage copies `.next/standalone` |
@@ -647,7 +685,41 @@ npx promptfoo@latest eval -c promptfooconfig.yaml --no-cache
 
 ## 15. Session Handoff — READ THIS FIRST
 
-### What was completed in the most recent session (2026-07-07, Phase A: production foundation + real public deployment)
+### What was completed in the most recent session (2026-07-11, Phase B: the closed loop, public search, and the FIRST SHIPPED PRODUCT)
+
+**The headline: the full Discover → Validate → Approve → Build → Publish loop now runs end to end, and the first product is live: `https://ptp-011-trustlayer-sdk.vercel.app` (PTP-011, "TrustLayer SDK" — a working client-side trust-score evaluator, built entirely by the build squad, QA-passed, deployed and smoke-checked by the pipeline itself). Its showcase card and permanent story page are live on `https://protopro.vercel.app` / `/showcase/ptp-011`.** ADR-0010 documents the architecture decisions; implementation-notes.md has the phase entry.
+
+#### Fully shipped and verified this session
+1. **Closed loop**: human approval auto-chains venture → build squad → publish (`runner.resume_run`). Verified live: a keyword-search-discovered idea (PTP-004) was approved, ran venture, and was honestly *parked* by the stress gate; the already-approved TrustLayer opportunity (PTP-011) went build → QA pass → Vercel deploy → smoke check → `deploy_url` persisted → product-ready notification sent (console adapter).
+2. **Build squad ships working MVPs** (client-side web apps). Getting there took TEN live build iterations, each fixing one observed failure mode — the full list is in implementation-notes.md's Phase B entry and ADR-0010; the headline fixes: sequential engineers with sibling files in context, raw-text `_completion` seam for code files, code-owned architecture shape (`consolidate_components`, `ensure_browser_components`, `link_assets`), a deterministic DOM-id reference audit that QA must not contradict (`undefined_dom_ids`), a flattened `ArchitectureSpec` (strict-schema mode), and a narrow critical-severity rubric for QA.
+3. **Public keyword search**, live on the homepage and in production: `POST /api/v1/search` (guardrailed, rate-limited per client + per day, keyword-deduped, cost-ceilinged, audited in `search_requests`). Verified live locally (multiple full runs: discovery → shortlist → gate) and in production (run `fb569f7e…`, keyword "AI agent observability", source-tagged, awaiting review as designed).
+4. **PTP numbering** (`ideas.ptp_number`, shortlist-time assignment, seeds hold 1–3, DB starts at 4) + 12 backfilled historical validated ideas (PTP-005…016). Showcase lifecycle (validated → building → live) served by `/api/v1/showcase*`; declined ideas leave the public showcase.
+5. **Console real data**: in-console approval queue (operator token, verified end-to-end locally — list → one-click approve → graph resumed), SSE live run timeline, keyword/source tags on runs, today's-spend + daily-ceiling alert on the cost panel. Deployed console verified "API connected" with the queue rendered.
+6. **Research Agent web-wide search**: `search_web` MCP tool (DuckDuckGo HTML, keyless), live-verified; `MAX_RESEARCH_STEPS` 16→18.
+7. **Story pages** (`/showcase/ptp-xxx`): problem, evidence, analyst verdict, human decision, product vision, build (stack/features/QA rounds), full timeline replay. PTP-011's is live and seeded (`web/src/lib/seed-story.ts` mirrors the real record, same pattern as `cases.ts`).
+8. Tests 56 → **78**, all green; ruff clean; `pnpm lint`/`build` clean; three commits pushed; Render auto-deployed the API (v1.1 confirmed live); web deployed to Vercel twice (user-approved).
+
+#### Shipped but needs a decision/step from the user
+- **Real email delivery** (the user explicitly asked for review + product-ready emails): everything is wired including the new `notify.send_product_ready`; the ONLY missing piece is a `RESEND_API_KEY` (free at resend.com) in `.env` and in Render's env vars, plus `REVIEW_EMAIL_TO` on Render. Until then both emails log to the server console.
+- **Production full loop**: prod's pipeline pauses at the human gate correctly (run `fb569f7e…` awaiting review). Approving it needs the operator key (Render dashboard `API_TOKEN`) pasted into the live console's queue — and prod builds will skip publish until `VERCEL_TOKEN` is set in Render's env.
+- **Production data durability**: the Render DB was found EMPTY (2026-07-07's runs gone). Free-tier reset suspected. Seeded fallbacks carry the public site regardless; paying for the starter disk is the alternative.
+- Local pending reviews left intentionally undecided for the user: PTP-017/018/019 ("prompt caching strategies" search) + 4 older ones — visible in the local console queue.
+
+#### Deliberately deferred
+- Semantic keyword dedupe (exact-normalized only), Postgres migration, prompt versioning, visual graph state in console, Reddit source, OKF principle library — all unchanged from §11/§12.
+- A `ptp_number` UNIQUE constraint on migrated SQLite DBs (ALTER can't add one; single-writer assignment logic guarantees it in practice — Postgres migration adds the real constraint).
+
+#### Important implementation details this session adds (do not lose)
+- **`venture.agents._completion` is a second seam** next to `_structured` — same module-attribute-access rule for callers and tests (test_build monkeypatches both).
+- **The SQLite micro-migration** (`db/engine._apply_additive_columns`) runs before `create_all` at every boot — additive nullable columns only; anything fancier means Alembic time.
+- **Never let the LLM own file structure**: paths (`scaffold_targets`), component shape (`consolidate_components`/`ensure_browser_components`), asset tags (`link_assets`), and id existence (`undefined_dom_ids`) are all code. Any new build-stage behavior should ask "can code decide this?" first.
+- **The public search endpoint is deliberately open**; its protection is the layered spend controls, all enforced BEFORE any LLM call. Don't add a bearer token to it — that deletes the feature.
+- **`/api/v1/reviews/pending` returns live capabilities (tokens)** — it must stay operator-protected forever.
+- The Vercel token in `.env` authenticates as team `asmq333`'s user (`dsharp0707`); product deploys create projects named `ptp-NNN-slug` in that team.
+
+---
+
+### Previous session record (2026-07-07, Phase A: production foundation + real public deployment)
 
 This was the single biggest infra jump the project has had: it went from "everything runs on localhost" to "deployed and publicly reachable" in one session, executed in two parts — first the Phase A build-out (Docker/K8s/CI/Promptfoo/cost tracking), then, at the user's explicit follow-up request, actually deploying it.
 
