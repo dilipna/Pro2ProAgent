@@ -25,7 +25,6 @@ from p2pops.build.schemas import (
     DataModel,
     QAIssue,
     QAReport,
-    ScaffoldContent,
     StackChoice,
 )
 from p2pops.db import repository as repo
@@ -73,14 +72,6 @@ def build_fake_structured(*, qa_rounds_to_clean: int, critical_component: str = 
                 api_surface=["POST /run"],
                 rationale="two components suffice for v1",
             )
-        if schema is ScaffoldContent:
-            for name in COMPONENTS:
-                if f"COMPONENT: {name}" in prompt:
-                    return ScaffoldContent(
-                        content=f"# scaffold for {name}\n# TODO: implement",
-                        key_decisions=[f"{name}: minimal v1 stub"],
-                    )
-            raise AssertionError(f"unexpected component prompt: {prompt[:200]}")
         if schema is QAReport:
             qa_calls["n"] += 1
             if qa_calls["n"] >= qa_rounds_to_clean:
@@ -114,6 +105,18 @@ async def run_build(
         "_structured",
         build_fake_structured(qa_rounds_to_clean=qa_rounds_to_clean, critical_component=critical_component),
     )
+
+    # Engineer file content now flows through the raw-text seam (same
+    # module-attribute-access rule as _structured — patching it here on
+    # venture_agents is itself the test that build/agents.py's import
+    # style is correct).
+    async def fake_completion(prompt: str, *, agent: str, tier: str = "default", max_tokens: int = 2048):
+        for name in COMPONENTS:
+            if f"COMPONENT: {name}" in prompt:
+                return f"# scaffold for {name}\n# TODO: implement"
+        raise AssertionError(f"unexpected component prompt: {prompt[:200]}")
+
+    monkeypatch.setattr(venture_agents, "_completion", fake_completion)
 
     run = await repo.create_run("test topic")
     idea_row = await repo.save_idea(make_idea("approved"), run_id=run.id)

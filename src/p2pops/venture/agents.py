@@ -77,6 +77,40 @@ async def _structured[T: BaseModel](
     return await with_retry(call, agent=agent)
 
 
+async def _completion(
+    prompt: str,
+    *,
+    agent: str,
+    tier: str = "default",
+    max_tokens: int = 2048,
+) -> str:
+    """Raw-text sibling of `_structured` — same retry/tracing/cost-capture
+    contract, no schema. Exists because forcing large code files through a
+    JSON string field is inherently fragile (a live build lost 4 engineer
+    components in one round to `json_validate_failed`); file content goes
+    out as plain text and code wraps it downstream. Same module-attribute
+    seam rule as `_structured`: callers in other packages must access it as
+    `venture_agents._completion(...)` so tests stay hermetic."""
+
+    async def call() -> str:
+        with logfire.span("venture.llm", agent=agent, mode="completion"):
+            model = get_chat_model(tier, max_tokens=max_tokens, temperature=0.0)
+            message = await model.ainvoke(prompt)
+            await cost_tracking.record_usage(agent, tier, message)
+            content = message.content
+            if isinstance(content, list):
+                text = "".join(
+                    part.get("text", "") if isinstance(part, dict) else str(part) for part in content
+                )
+            else:
+                text = str(content)
+            if not text.strip():
+                raise ValueError(f"{agent}: completion returned empty content")
+            return text
+
+    return await with_retry(call, agent=agent)
+
+
 # --- Evidence gathering (deterministic, no LLM) ----------------------------------
 
 
