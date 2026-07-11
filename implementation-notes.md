@@ -8,6 +8,41 @@
 
 ## Phase log (post-pivot)
 
+### Phase B — The closed loop: auto-build + publish, public keyword search, real console data (2026-07-11)
+
+- **Closed Discover→Publish** (ADR-0010): human approval now auto-chains
+  venture → build squad → publish. The build squad ships working
+  client-side web MVPs (not scaffolds); `publish.py` deploys each to its
+  own Vercel URL under `ptp-NNN-slug`, smoke-checks it, records
+  `deploy_url`, and `notify.send_product_ready` emails the operator.
+- **PTP numbering is a DB fact**: `ideas.ptp_number` assigned at shortlist
+  time (seeds hold 1–3, DB starts at 4); 12 historical validated ideas
+  backfilled (PTP-005…016).
+- **Public keyword search**: `POST /api/v1/search` — same
+  guardrail/dedupe/analyst/human-gate chain scoped to a visitor keyword,
+  behind layered spend controls (per-client hourly, global daily, 24h
+  dedupe, daily cost ceiling from the LlmCall ledger) and a keyword-tuned
+  NeMo rail. Everything audited in a new `search_requests` table.
+- **Console got real**: in-console approval queue (operator-token JSON twin
+  of the email links), SSE live run timeline, keyword/source tags,
+  today's-spend + ceiling alert; showcase renders live lifecycle from
+  `/api/v1/showcase`; every PTP item has a permanent story page.
+- **Live build iteration** (the interview story of this phase): eight
+  consecutive real builds of the TrustLayer opportunity surfaced and fixed,
+  one at a time — parallel engineers writing interlocking files blind
+  (→ sequential with sibling context), QA naming decorated components
+  (→ deterministic name matching), models omitting strict-schema keys in
+  deep nesting (→ flattened ArchitectureSpec), whole components lost to
+  json_validate_failed on big code-in-JSON strings (→ raw-text
+  `_completion` seam), architectures with no HTML page at all
+  (→ `ensure_browser_components`), missing script/link tags
+  (→ `link_assets`), and QA hallucinating id-existence findings
+  (→ deterministic `undefined_dom_ids` audit, authoritative in the QA
+  prompt). Every fix is code-owned where possible, prompt-owned otherwise.
+- Render auto-deploy on push confirmed live (prod picked up v1.1 without
+  dashboard action). Production DB found empty — 2026-07-07's data did not
+  survive; seeded fallbacks carry the public site regardless.
+
 ### Phase A — Production foundation: Docker, CI/CD, K8s, Promptfoo, cost tracking (2026-07-07)
 
 Closed the entire infra gap named in PROJECT_BRAIN §8 ("No Docker, no CI/CD,
