@@ -20,9 +20,6 @@ from p2pops.build.schemas import (
     ArchitectureSpec,
     BuildPlan,
     ComponentSpec,
-    DataEntity,
-    DataField,
-    DataModel,
     QAIssue,
     QAReport,
     StackChoice,
@@ -68,7 +65,7 @@ def build_fake_structured(*, qa_rounds_to_clean: int, critical_component: str = 
                         key_interfaces=["/console"],
                     ),
                 ],
-                data_model=DataModel(entities=[DataEntity(name="Run", fields=[DataField(name="id", type="str")])]),
+                data_model="Run { id: str }",
                 api_surface=["POST /run"],
                 rationale="two components suffice for v1",
             )

@@ -22,9 +22,6 @@ __all__ = [
     "BuildFeature",
     "StackChoice",
     "BuildPlan",
-    "DataField",
-    "DataEntity",
-    "DataModel",
     "ComponentSpec",
     "ArchitectureSpec",
     "ScaffoldContent",
@@ -60,23 +57,12 @@ class BuildPlan(BaseModel):
 
 
 # --- Architect -------------------------------------------------------------------
-
-
-class DataField(BaseModel):
-    name: str
-    type: str
-    note: str = ""
-
-
-class DataEntity(BaseModel):
-    name: str
-    fields: list[DataField] = Field(default_factory=list)
-    relationships: list[str] = Field(default_factory=list, description="Free-text refs to other entities")
-
-
-class DataModel(BaseModel):
-    entities: list[DataEntity] = Field(default_factory=list)
-    notes: str = ""
+# NOTE: the data model is deliberately a flat string, not nested
+# entity/field objects. Groq's strict structured-output mode requires every
+# schema property present on every object, and small models were observed
+# repeatedly omitting deep-nested keys ('relationships', 'note') — 4/4
+# failed generations in one live build. Every removed nesting level removes
+# an omission surface; the engineers consume the data model as prose anyway.
 
 
 class ComponentSpec(BaseModel):
@@ -97,9 +83,12 @@ class ComponentSpec(BaseModel):
 class ArchitectureSpec(BaseModel):
     """Architect output."""
 
-    components: list[ComponentSpec] = Field(description="3-6 components covering the BuildPlan's P0 features")
-    data_model: DataModel
-    api_surface: list[str] = Field(default_factory=list, description="Endpoint/interface sketches, one line each")
+    components: list[ComponentSpec] = Field(description="Components covering the BuildPlan's P0 features")
+    data_model: str = Field(
+        description="The exact object shapes the app stores (e.g. localStorage keys and their "
+        "JSON shapes), written as a compact sketch the engineers copy from"
+    )
+    api_surface: list[str] = Field(default_factory=list, description="Element ids / function contracts, one per line")
     rationale: str = Field(description="One line: why this shape fits the plan")
 
 
