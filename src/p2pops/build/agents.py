@@ -97,9 +97,18 @@ async def design_architecture(ctx: str, plan: BuildPlan) -> ArchitectureSpec:
         "No server components: this app runs from static files alone. Define the "
         "shared data model (the exact object shapes stored in localStorage) and "
         "the api_surface as the DOM element ids / JS function contracts the "
-        "three files share — be precise, the engineers build against these.",
+        "three files share — be precise, the engineers build against these. "
+        "STRICT OUTPUT RULE: emit every property of the schema on every "
+        "object — including 'relationships' (use [] when none), 'note' (use "
+        "'' when none), 'key_interfaces', and 'depends_on' — never omit a "
+        "key. (The structured-output validator rejects missing keys "
+        "outright; observed live as 4/4 failed generations.)",
         agent="build/architect",
-        tier="builder",
+        # Default tier: a live run exhausted all retries on the builder
+        # model's 8k TPM ceiling once these instructions grew (reasoning
+        # models spend hidden tokens against that budget too) — same story
+        # as Engineer/QA, see ADR-0010.
+        tier="default",
     )
 
 
@@ -110,12 +119,18 @@ async def write_scaffold(
     component: ComponentSpec,
     qa_feedback: str = "",
     sibling_files: list[ScaffoldFile] | None = None,
+    planned_files: list[str] | None = None,
 ) -> ScaffoldContent:
     """Success criteria: a complete, working file — every feature wired,
     nothing stubbed; consistent with the files already written (passed in
     as sibling context — this is what makes JS reference real HTML ids);
     directly addresses qa_feedback when present."""
     feedback_block = f"\nQA FEEDBACK TO ADDRESS: {qa_feedback}" if qa_feedback else ""
+    planned_block = (
+        f"\nTHE APP'S COMPLETE FILE SET (decided, do not invent others): {', '.join(planned_files)}"
+        if planned_files
+        else ""
+    )
     siblings_block = ""
     if sibling_files:
         rendered = "\n".join(f"--- {f.path} (already written) ---\n{f.content[:5000]}" for f in sibling_files)
@@ -124,24 +139,35 @@ async def write_scaffold(
             f"as they are (reference only element ids, classes, and functions that really exist "
             f"in them):\n{rendered}"
         )
-    return await venture_agents._structured(
-        ScaffoldContent,
+    # Raw completion, not structured output: large code files inside a JSON
+    # string field are exactly where json_validate_failed lives (a live
+    # build lost 4 components in one round to it). Plain text out, code
+    # strips any stray markdown fences deterministically.
+    text = await venture_agents._completion(
         ctx
         + f"\nBUILD PLAN: {plan.model_dump_json()}"
         + f"\nARCHITECTURE: {architecture.model_dump_json()}"
         + f"\n\nCOMPONENT: {component.name}\n{component.model_dump_json()}"
         + feedback_block
+        + planned_block
         + siblings_block
         + f"\n\nYou are the Engineer for the '{component.name}' component of a "
         "self-contained client-side web app (static HTML/CSS/JS, no build "
         "step, no server, no external libraries or CDNs). Write the COMPLETE, "
-        "WORKING file for this component — this ships to real users as-is, so "
-        "no TODOs, no placeholder stubs, no unimplemented buttons. Every P0 "
-        "feature this component is responsible for must actually work when "
-        "the files are opened in a browser. Stay exactly consistent with the "
-        "shared data model (localStorage shapes) and api_surface (element ids "
-        "/ function contracts) so the three files work together. Content only "
-        "— no markdown fences around the code.",
+        "WORKING file for this component ONLY — one file, in this component's "
+        "own language. If this is the HTML file: markup only, no inline "
+        "<script> or <style> blocks (the CSS/JS live in the app's other "
+        "files, which are linked automatically). If this is a JS file: "
+        "JavaScript only, no HTML. This ships to real users as-is, so no "
+        "TODOs, no placeholder stubs, no Math.random() stand-in logic, no "
+        "'for demonstration purposes' shortcuts — implement the real thing, "
+        "simply. Every P0 feature this component is responsible for must "
+        "actually work when the files are opened in a browser. Stay exactly "
+        "consistent with the shared data model (localStorage shapes), the "
+        "api_surface (element ids / function contracts), and the sibling "
+        "files shown above.\n\n"
+        "OUTPUT FORMAT: respond with ONLY the raw file content, starting at "
+        "its first character. No preamble, no explanation, no markdown fences.",
         agent="build/engineer",
         # Stays on the default tier deliberately: complete files need a big
         # max_tokens, and the builder model (gpt-oss-120b) sits on an 8k TPM
@@ -150,38 +176,68 @@ async def write_scaffold(
         tier="default",
         max_tokens=6144,
     )
+    return ScaffoldContent(content=_strip_fences(text), key_decisions=[])
+
+
+def _strip_fences(text: str) -> str:
+    """Deterministically unwrap a markdown code fence if the model added one
+    despite instructions — never let formatting cost a build round."""
+    t = text.strip()
+    if t.startswith("```"):
+        first_newline = t.find("\n")
+        if first_newline != -1 and t.rstrip().endswith("```"):
+            t = t[first_newline + 1 :].rstrip()
+            t = t[: -3].rstrip("\n") if t.endswith("```") else t
+    return t
 
 
 async def review_scaffold(
-    ctx: str, plan: BuildPlan, architecture: ArchitectureSpec, files: list[ScaffoldFile]
+    ctx: str,
+    plan: BuildPlan,
+    architecture: ArchitectureSpec,
+    files: list[ScaffoldFile],
+    reference_audit: list[str] | None = None,
 ) -> QAReport:
     """Success criteria: this is a structured document review, not code
     execution — findings reference what's actually written in each file;
-    verdict follows from the issues, mirroring stress_test's own rule."""
+    verdict follows from the issues, mirroring stress_test's own rule.
+    `reference_audit` is scoring.undefined_dom_ids' output — authoritative
+    over anything the model believes about id existence."""
     # Near-full files: a truncated HTML page makes "JS references an id the
     # HTML doesn't define" findings unfalsifiable (observed live round 2).
     # QA runs on the 30k-TPM default tier, which absorbs this comfortably.
     files_block = "\n".join(f"--- {f.component} ({f.path}) ---\n{f.content[:9000]}" for f in files)
+    audit_block = (
+        "every DOM id referenced by the JS is defined in the HTML"
+        if not reference_audit
+        else f"ids referenced by the JS but NOT defined in any HTML file: {', '.join(reference_audit)}"
+    )
     return await venture_agents._structured(
         QAReport,
         ctx
         + f"\nBUILD PLAN: {plan.model_dump_json()}"
         + f"\nARCHITECTURE: {architecture.model_dump_json()}"
-        + f"\n\nPRODUCT FILES (each truncated for review):\n{files_block}"
+        + f"\n\nPRODUCT FILES — this is the app's COMPLETE file set; every file "
+        "named in the architecture appears above (long files truncated for "
+        f"review):\n{files_block}"
+        + f"\n\nDETERMINISTIC REFERENCE AUDIT (computed by code, authoritative): {audit_block}."
         + "\n\nYou are QA for a shipping product. Review these files against the "
         "build plan and architecture spec as a structured document review — "
         "you are not executing any code. This app deploys to real users as "
         "static files, so flag as critical anything that would make it not "
-        "work in a browser: unimplemented or stubbed P0 features, JS that "
-        "references element ids the HTML verifiably does not define, broken "
-        "references between the three files, use of external libraries/CDNs "
-        "or a server the app doesn't have. In `component`, use the EXACT "
-        "component name from the architecture, nothing appended. Major = "
-        "works but deviates from the data model / api_surface; minor = "
-        "polish. Verdict must follow from your own issues: 'blocked' if any "
-        "critical issue has no credible fix. Do not flag file truncation "
-        "itself, and do not report an id as undefined unless you can see the "
-        "full HTML and it is genuinely absent.",
+        "work in a browser: unimplemented or stubbed P0 features, ids listed "
+        "as missing by the reference audit above, use of external "
+        "libraries/CDNs or a server the app doesn't have. In `component`, "
+        "use the EXACT component name from the architecture, nothing "
+        "appended. Major = works but deviates from the data model / "
+        "api_surface; minor = polish. Verdict must follow from your own "
+        "issues: 'blocked' if any critical issue has no credible fix. HARD "
+        "RULES: id-existence findings must come ONLY from the reference "
+        "audit — never contradict it. Never claim a file is missing when its "
+        "block appears above. Never flag truncation. Browser-compatibility "
+        "speculation (older browsers, restricted localStorage, disabled JS) "
+        "is never an issue at any severity — assume a modern evergreen "
+        "browser.",
         agent="build/qa",
         # Default tier for the same 8k-TPM reason as the Engineer: QA's
         # prompt now carries three real product files, which alone would

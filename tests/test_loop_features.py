@@ -119,6 +119,76 @@ def test_package_product_requires_html():
         publish.package_product([_file("Logic", "app.js", "x")], 4, "Thing")
 
 
+def test_consolidate_components_merges_browser_language_groups():
+    from p2pops.build.scoring import consolidate_components
+
+    components = [
+        ComponentSpec(name="Page", responsibility="markup", tech="HTML page"),
+        ComponentSpec(name="Calculator", responsibility="score", tech="JavaScript logic"),
+        ComponentSpec(name="Tracker", responsibility="history", tech="JavaScript logic", key_interfaces=["track()"]),
+        ComponentSpec(name="Style", responsibility="design", tech="CSS stylesheet"),
+        ComponentSpec(name="Backend", responsibility="api", tech="FastAPI service"),
+    ]
+    result = consolidate_components(components)
+    names = [c.name for c in result]
+    assert names == ["Page", "Calculator", "Style", "Backend"]  # JS pair merged, others untouched
+    merged = result[1]
+    assert "score" in merged.responsibility and "history" in merged.responsibility
+    assert "track()" in merged.key_interfaces
+
+
+def test_ensure_browser_components_injects_missing_page():
+    from p2pops.build.scoring import ensure_browser_components
+
+    browser_slate = [
+        ComponentSpec(name="Logic", responsibility="score", tech="JavaScript logic"),
+        ComponentSpec(name="Style", responsibility="design", tech="CSS stylesheet"),
+    ]
+    result = ensure_browser_components(browser_slate)
+    assert [c.name for c in result] == ["HTML Page", "Logic", "Style"]
+
+    non_browser = [ComponentSpec(name="API", responsibility="api", tech="FastAPI service")]
+    assert [c.name for c in ensure_browser_components(non_browser)] == ["API"]
+
+
+def test_undefined_dom_ids_audit():
+    from p2pops.build.scoring import undefined_dom_ids
+
+    html = ScaffoldFile(
+        component="Page",
+        path="index.html",
+        language="html",
+        content='<div id="score"></div><input id="name-field">',
+    )
+    js = ScaffoldFile(
+        component="Logic",
+        path="app.js",
+        language="javascript",
+        content="document.getElementById('score'); document.querySelector('#missing-panel'); getElementById(\"name-field\")",
+    )
+    assert undefined_dom_ids([html, js]) == ["missing-panel"]
+    js_ok = ScaffoldFile(component="L", path="app.js", language="javascript", content="getElementById('score')")
+    assert undefined_dom_ids([html, js_ok]) == []
+
+
+def test_link_assets_injects_missing_references_only():
+    from p2pops.build.scoring import link_assets
+
+    html = ScaffoldFile(
+        component="Page",
+        path="index.html",
+        language="html",
+        content='<html><head><link rel="stylesheet" href="styles.css"></head><body></body></html>',
+    )
+    css = ScaffoldFile(component="Style", path="styles.css", language="css", content="body{}")
+    js = ScaffoldFile(component="Logic", path="app.js", language="javascript", content="init()")
+    files = link_assets([html, css, js])
+    content = files[0].content
+    assert content.count("styles.css") == 1  # already referenced — not duplicated
+    assert '<script src="app.js" defer></script>' in content
+    assert content.index("app.js") < content.index("</body>")
+
+
 def test_product_slug_is_bounded_and_clean():
     assert publish.product_slug(4, "Cost Guard!") == "ptp-004-cost-guard"
     long = publish.product_slug(12, "A" * 100)

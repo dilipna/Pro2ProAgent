@@ -109,3 +109,35 @@ async def send_review_request(run: Run, ideas: list[Idea], reviews: dict[str, Re
     subject = f"[ProToPro] {len(ideas)} idea{'s' if len(ideas) != 1 else ''} awaiting your decision"
     with logfire.span("notify.review_request", run_id=run.id, ideas=len(ideas)):
         await notifier.send(to=to or "console@localhost", subject=subject, html=html)
+
+
+async def send_product_ready(ptp_number: int | None, product_name: str, deploy_url: str) -> None:
+    """The closing email of the loop: the approved idea shipped and is live.
+    Same adapter selection as the review email — console-logged until a
+    RESEND_API_KEY exists. Best-effort: a notification failure must never
+    fail the publish stage that already succeeded."""
+    settings = get_settings()
+    to = settings.review_email_to
+    notifier = get_notifier() if to else ConsoleEmailNotifier()
+    ptp = f"PTP-{ptp_number:03d}" if ptp_number is not None else "PTP"
+    html = f"""
+    <div style="background:#0b090a;padding:32px;font-family:ui-sans-serif,system-ui,sans-serif">
+      <p style="font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#948a8e;margin:0 0 4px">
+        ProToPro · published
+      </p>
+      <h2 style="color:#f6f1f2;font-weight:600;margin:0 0 6px">{ptp} · {product_name} is live</h2>
+      <p style="color:#948a8e;font-size:13px;margin:0 0 24px">
+        The build squad shipped it, QA passed, and the deploy answered a live smoke check.
+      </p>
+      <a href="{deploy_url}" style="display:inline-block;background:#a02240;color:#f6f1f2;text-decoration:none;padding:10px 18px;border-radius:99px;font-size:14px;margin-right:8px">View the product</a>
+      <a href="https://protopro.vercel.app/showcase/{ptp.lower()}" style="display:inline-block;color:#948a8e;text-decoration:none;padding:10px 18px;border:1px solid #2a242a;border-radius:99px;font-size:14px">Read its story</a>
+    </div>"""
+    try:
+        with logfire.span("notify.product_ready", url=deploy_url):
+            await notifier.send(
+                to=to or "console@localhost",
+                subject=f"[ProToPro] {ptp} shipped — {product_name} is live",
+                html=html,
+            )
+    except Exception:
+        logger.exception("product-ready notification failed (publish already succeeded)")

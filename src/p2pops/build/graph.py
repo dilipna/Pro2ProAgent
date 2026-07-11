@@ -95,10 +95,19 @@ async def pm_node(state: BuildState) -> dict:
 async def architect_node(state: BuildState) -> dict:
     t0 = time.monotonic()
     architecture = await agents.design_architecture(state["ctx"], state["plan"])
-    # Paths are decided once per architecture (code, never the LLM) so a
-    # QA-revised component keeps the exact same file path across rounds.
+    proposed = len(architecture.components)
+    # Code owns the structure: collapse over-decomposition to the
+    # three-browser-file shape, guarantee an HTML page + JS logic component
+    # exist, then fix each component's path/language once per architecture
+    # so QA-revised components keep their paths.
+    architecture.components = scoring.ensure_browser_components(
+        scoring.consolidate_components(architecture.components)
+    )
     targets = scoring.scaffold_targets(architecture.components)
-    await _event(state, "build/architect", "stage_completed", f"{len(architecture.components)} components", t0)
+    detail = f"{len(architecture.components)} components"
+    if proposed != len(architecture.components):
+        detail += f" (consolidated from {proposed})"
+    await _event(state, "build/architect", "stage_completed", detail, t0)
     return {"architecture": architecture, "targets": targets}
 
 
@@ -144,6 +153,7 @@ async def _run_engineer(
                 component,
                 feedback_by_component.get(component.name, ""),
                 sibling_files=siblings,
+                planned_files=[path for path, _ in state["targets"].values()],
             )
         except Exception as exc:
             await _event(state, "build/engineer", "error", f"{component.name}: {exc}")
@@ -164,12 +174,15 @@ async def _run_engineer(
 
 async def engineer_node(state: BuildState) -> dict:
     files = await _run_engineer(state, state["architecture"].components)
-    return {"scaffold_files": files}
+    return {"scaffold_files": scoring.link_assets(files)}
 
 
 async def qa_node(state: BuildState) -> dict:
     t0 = time.monotonic()
-    report = await agents.review_scaffold(state["ctx"], state["plan"], state["architecture"], state["scaffold_files"])
+    audit = scoring.undefined_dom_ids(state["scaffold_files"])
+    report = await agents.review_scaffold(
+        state["ctx"], state["plan"], state["architecture"], state["scaffold_files"], reference_audit=audit
+    )
     round_index = state["round_index"] + 1
     gate = scoring.qa_gate(report, round_index)
     await _event(
@@ -252,7 +265,7 @@ async def revise_node(state: BuildState) -> dict:
     merged_names = {f.component for f in merged}
     merged.extend(f for f in revised_files if f.component not in merged_names)
 
-    return {"scaffold_files": merged}
+    return {"scaffold_files": scoring.link_assets(merged)}
 
 
 async def mark_complete_node(state: BuildState) -> dict:
@@ -286,6 +299,9 @@ async def publish_node(state: BuildState) -> dict:
         return {}
     await repo.set_build_deploy_url(state["build_id"], url)
     await _event(state, "build/publish", "stage_completed", f"live at {url} (deployed + smoke-checked)", t0)
+    from .. import notify
+
+    await notify.send_product_ready(ptp_number, product_name, url)
     return {"deploy_url": url}
 
 
