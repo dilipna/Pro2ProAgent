@@ -24,6 +24,22 @@ export interface CaseStudy {
 
 export const CASES: CaseStudy[] = [
   {
+    // The second shipped product — and the first where the human decision
+    // came from the founder picking one of four candidates surfaced by
+    // their own keyword search (2026-07-11). Mirrored here like the cards
+    // below; the live database record supersedes it whenever the API
+    // serves PTP-020 itself.
+    id: "PTP-020",
+    title: "Real-time LLM Cost Monitoring",
+    insight:
+      "Developers struggle to track and control LLM costs in real time, leading to delayed incident response and surprise spikes — LLM Billing Ledger is an immutable, in-browser cost ledger with per-model attribution and live totals.",
+    score: 85,
+    source: "Hacker News",
+    status: "shipped",
+    liveUrl: "https://ptp-020-llm-billing-ledger-system-o.vercel.app",
+    storyHref: "/showcase/ptp-020",
+  },
+  {
     // The first product to complete the full loop: discovered, validated,
     // human-approved, built by the squad, QA-passed, and deployed live by
     // the pipeline itself (2026-07-11). Mirrored here (like the cards
