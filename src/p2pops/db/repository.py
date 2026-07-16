@@ -73,6 +73,28 @@ async def run_count() -> int:
         return int(result.scalar_one())
 
 
+async def fail_orphaned_runs() -> int:
+    """Mark runs that were mid-flight when the process last stopped as failed.
+
+    A run's background task lives in one process; a redeploy or crash kills
+    it with no chance to record an error, leaving the row stuck "running"
+    (discovery) or "building" (venture/build) forever -- which is exactly
+    what stalled the prod pipeline. A fresh process has no in-flight tasks,
+    so any such row is an orphan. Runs paused at the human gate
+    ("awaiting_review") are checkpointed and genuinely resumable, so they are
+    left untouched. Called once at startup. Returns how many were swept."""
+    async with session() as s:
+        rows = await s.execute(select(Run).where(Run.status.in_(("running", "building"))))
+        orphans = list(rows.scalars())
+        for run in orphans:
+            run.status = "failed"
+            run.error = "interrupted: the service restarted while this run was in progress"
+            run.completed_at = utcnow()
+        if orphans:
+            await s.commit()
+        return len(orphans)
+
+
 async def set_run_status(run_id: str, status: str, error: str | None = None) -> None:
     async with session() as s:
         run = await s.get(Run, run_id)

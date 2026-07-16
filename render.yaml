@@ -33,6 +33,13 @@ services:
         value: production
       - key: LLM_PROVIDER
         value: groq
+      # Bind the research tools in-process here. Spawning the MCP stdio
+      # server as a subprocess per tool call from inside this container's
+      # asyncio event loop (Linux, no uvloop) hangs forever — every run
+      # stalled at research/stage_started. In-process calls the identical
+      # tool functions with no subprocess. See ADR-0011.
+      - key: RESEARCH_TOOLS
+        value: in_process
       # Public URL used inside review-email approve/reject links. If Render
       # assigns a different hostname (name collision), update this to match.
       - key: APP_BASE_URL

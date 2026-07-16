@@ -57,6 +57,12 @@ def get_chat_model(
     if temperature is not None:
         extra["temperature"] = temperature
 
+    # A per-request network timeout so a wedged connection surfaces as a
+    # retryable error (resilience.with_retry treats a status-less failure as
+    # transient) instead of hanging a whole run. The SDK default is 10
+    # minutes; that's far too long to sit blocked on a single call.
+    timeout = settings.llm_request_timeout_s
+
     if provider == "openrouter":
         return ChatOpenAI(
             model=model_name,
@@ -64,6 +70,7 @@ def get_chat_model(
             base_url=OPENROUTER_BASE_URL,
             max_tokens=max_tokens,
             max_retries=0,
+            timeout=timeout,
             **extra,
         )
 
@@ -74,6 +81,7 @@ def get_chat_model(
             base_url=GROQ_BASE_URL,
             max_tokens=max_tokens,
             max_retries=0,
+            timeout=timeout,
             **extra,
         )
 
@@ -82,5 +90,6 @@ def get_chat_model(
         api_key=settings.anthropic_api_key,
         max_tokens=max_tokens,
         max_retries=0,
+        timeout=timeout,
         **extra,
     )
