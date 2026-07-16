@@ -19,6 +19,28 @@ async def test_run_lifecycle_and_events(db):
     assert await repo.run_count() == 1
 
 
+async def test_fail_orphaned_runs_sweeps_only_in_flight(db):
+    running = await repo.create_run("still running")
+    building = await repo.create_run("mid build")
+    await repo.set_run_status(building.id, "building")
+    paused = await repo.create_run("at the gate")
+    await repo.set_run_status(paused.id, "awaiting_review")
+    done = await repo.create_run("finished")
+    await repo.set_run_status(done.id, "completed")
+
+    swept = await repo.fail_orphaned_runs()
+    assert swept == 2
+
+    assert (await repo.get_run(running.id)).status == "failed"
+    assert (await repo.get_run(building.id)).status == "failed"
+    # A checkpointed human-gate pause is genuinely resumable — never swept.
+    assert (await repo.get_run(paused.id)).status == "awaiting_review"
+    assert (await repo.get_run(done.id)).status == "completed"
+
+    # Idempotent: a second startup with nothing in flight sweeps nothing.
+    assert await repo.fail_orphaned_runs() == 0
+
+
 async def test_ideas_and_counts(db):
     run = await repo.create_run("t")
     await repo.save_idea(make_idea("shortlisted"), run_id=run.id)

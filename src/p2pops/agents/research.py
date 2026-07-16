@@ -10,9 +10,11 @@ still trace every step either way.
 
 import argparse
 import asyncio
+import logging
 import sys
 
 import logfire
+from langchain_core.tools import StructuredTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
 
@@ -22,6 +24,11 @@ from p2pops.config import get_settings
 from p2pops.models import ResearchReport
 from p2pops.resilience import with_retry
 from p2pops.telemetry import configure_telemetry
+from p2pops.tools.hn import search_hn
+from p2pops.tools.web import fetch_article_text
+from p2pops.tools.websearch import search_web as _search_web
+
+logger = logging.getLogger(__name__)
 
 RESEARCH_SYSTEM_PROMPT = (
     "You are the Research Agent for P2POps, an AI company that finds real, "
@@ -69,6 +76,50 @@ RESEARCH_SYSTEM_PROMPT = (
 MAX_RESEARCH_STEPS = 18
 
 
+# The three tools are the same non-empty-return-safe contracts the MCP
+# server (mcp/server.py) exposes -- same names (the system prompt references
+# them by name), same caps, same empty-list placeholders that keep Groq's
+# chat-completion schema happy. Defined once here so the in-process transport
+# and the MCP server can't drift apart.
+_MAX_SEARCH_RESULTS = 6
+_MAX_ARTICLE_CHARS = 1200
+
+
+async def _search_hacker_news(query: str, limit: int = _MAX_SEARCH_RESULTS) -> list[dict]:
+    """Search Hacker News for stories matching `query`."""
+    capped = min(limit, _MAX_SEARCH_RESULTS)
+    stories = [s.model_dump() for s in await asyncio.to_thread(search_hn, query, capped)]
+    return stories or [{"info": f"No Hacker News results found for '{query}'."}]
+
+
+async def _search_web_tool(query: str, limit: int = _MAX_SEARCH_RESULTS) -> list[dict]:
+    """Search the general web (blogs, forums, docs, issue trackers) for `query`."""
+    capped = min(limit, _MAX_SEARCH_RESULTS)
+    results = [r.model_dump() for r in await asyncio.to_thread(_search_web, query, capped)]
+    return results or [{"info": f"No web results found for '{query}'."}]
+
+
+async def _read_article(url: str) -> str:
+    """Fetch and return the readable text of an external article URL."""
+    return await asyncio.to_thread(fetch_article_text, url, _MAX_ARTICLE_CHARS)
+
+
+def _in_process_tools() -> list[StructuredTool]:
+    """The research tools bound directly, no subprocess. This is the
+    production-default transport: spawning the MCP stdio server as a
+    subprocess *per tool call* from inside the API's asyncio event loop
+    hangs indefinitely on the Linux host (SelectorEventLoop, no uvloop) --
+    reproduced live in prod, every run stalled at research/stage_started
+    forever. Calling the identical functions in-process removes that whole
+    failure mode; the tools flow through the exact same Guardrail -> dedupe
+    -> Analyst chain, so nothing about quality changes. See ADR-0011."""
+    return [
+        StructuredTool.from_function(coroutine=_search_hacker_news, name="search_hacker_news"),
+        StructuredTool.from_function(coroutine=_search_web_tool, name="search_web"),
+        StructuredTool.from_function(coroutine=_read_article, name="read_article"),
+    ]
+
+
 def _mcp_server_config() -> dict:
     return {
         "research": {
@@ -79,18 +130,48 @@ def _mcp_server_config() -> dict:
     }
 
 
-async def run_research(topic: str) -> ResearchReport:
-    """Run the Research Agent end to end for a given topic and return a structured report."""
-    client = MultiServerMCPClient(_mcp_server_config())
-    tools = await client.get_tools()
+# Process-level circuit breaker: once the MCP transport has proven unusable
+# in this environment, stop paying the (long) timeout on every subsequent
+# run and go straight to the in-process tools.
+_mcp_unhealthy = False
 
-    model = get_chat_model("default")
-    agent = create_react_agent(
-        model,
+
+async def _mcp_tools() -> list:
+    """Fetch tools from the MCP stdio server, bounded by a timeout so a
+    subprocess that never completes its handshake can't hang the caller."""
+    settings = get_settings()
+    client = MultiServerMCPClient(_mcp_server_config())
+    return await asyncio.wait_for(client.get_tools(), timeout=settings.mcp_startup_timeout_s)
+
+
+async def _research_tools() -> tuple[list, str]:
+    """(tools, transport_label). Honors the configured transport, but always
+    degrades to in-process rather than failing -- the discovery pipeline must
+    produce ideas even where the MCP subprocess can't run."""
+    global _mcp_unhealthy
+    settings = get_settings()
+    if settings.research_tools != "mcp" or _mcp_unhealthy:
+        return _in_process_tools(), "in-process"
+    try:
+        return await _mcp_tools(), "mcp"
+    except Exception as exc:
+        _mcp_unhealthy = True
+        logger.warning("MCP research tools unavailable (%s); using in-process tools", exc)
+        return _in_process_tools(), "in-process"
+
+
+def _build_agent(tools: list):
+    return create_react_agent(
+        get_chat_model("default"),
         tools,
         prompt=RESEARCH_SYSTEM_PROMPT,
         response_format=ResearchReport,
     )
+
+
+async def _run_turn(tools: list, topic: str) -> dict:
+    agent = _build_agent(tools)
+    settings = get_settings()
 
     async def call():
         return await agent.ainvoke(
@@ -105,11 +186,35 @@ async def run_research(topic: str) -> ResearchReport:
             config={"recursion_limit": MAX_RESEARCH_STEPS},
         )
 
-    with logfire.span("agent.research", topic=topic):
-        # A 429 mid-loop retries the whole agent turn -- tool calls (HN
-        # search/read) are idempotent, so the only cost is repeated work,
-        # never incorrect results.
-        result = await with_retry(call, agent="research")
+    # A 429 mid-loop retries the whole agent turn -- tool calls (HN
+    # search/read) are idempotent, so the only cost is repeated work, never
+    # incorrect results. The outer wait_for is a hard ceiling: no transport,
+    # however wedged, can leave a run stuck "running" forever again.
+    return await asyncio.wait_for(
+        with_retry(call, agent="research"), timeout=settings.research_turn_timeout_s
+    )
+
+
+async def run_research(topic: str) -> ResearchReport:
+    """Run the Research Agent end to end for a given topic and return a
+    structured report. Tries the configured transport first, then falls back
+    to in-process tools if it fails or times out -- so a broken MCP subprocess
+    degrades to a slower-but-working run instead of an eternal stall."""
+    global _mcp_unhealthy
+    tools, transport = await _research_tools()
+    with logfire.span("agent.research", topic=topic, transport=transport):
+        try:
+            result = await _run_turn(tools, topic)
+        except Exception as exc:
+            if transport != "mcp":
+                raise
+            # The MCP handshake succeeded but a per-call subprocess spawn hung
+            # (or otherwise failed): trip the breaker and retry in-process so
+            # this run still produces ideas.
+            _mcp_unhealthy = True
+            logger.warning("MCP research turn failed (%s); retrying in-process", exc)
+            with logfire.span("agent.research.fallback", topic=topic):
+                result = await _run_turn(_in_process_tools(), topic)
 
     # Unlike the single structured-output call sites (venture/build,
     # analyst), a ReAct turn makes one LLM call per tool-calling step -- so

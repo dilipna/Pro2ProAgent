@@ -7,6 +7,7 @@
 
 import asyncio
 import hashlib
+import logging
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
@@ -49,6 +50,13 @@ from .schemas import (
 async def lifespan(app: FastAPI):
     configure_telemetry()
     await init_db()
+    # A run's background task cannot survive the process that owns it, so any
+    # run still "running"/"building" at startup is an orphan from a previous
+    # process (redeploy/crash) — mark it failed instead of leaving it stuck
+    # forever. Human-gate pauses are checkpointed and left resumable.
+    swept = await repo.fail_orphaned_runs()
+    if swept:
+        logging.getLogger(__name__).warning("swept %d orphaned run(s) to failed at startup", swept)
     yield
     await runner.shutdown_pipeline()
     await dispose_engine()

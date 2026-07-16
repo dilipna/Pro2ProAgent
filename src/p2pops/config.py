@@ -106,6 +106,24 @@ class Settings(BaseSettings):
     review_interval_days: int = 10
     review_token_ttl_hours: int = 72
 
+    # Research Agent tool transport. "mcp" spawns the MCP stdio server as a
+    # subprocess (the real-protocol showcase; fine locally and for external
+    # MCP clients). "in_process" binds the identical tool functions directly
+    # -- the production default on the Linux host, where spawning a
+    # subprocess per tool call from inside the API event loop hangs forever
+    # (see agents/research.py / ADR-0011). Either way research auto-degrades
+    # to in-process if the MCP transport fails, so a run never stalls.
+    research_tools: Literal["mcp", "in_process"] = "mcp"
+    # Hard ceiling on a single research turn; on expiry the run fails loudly
+    # instead of sitting "running" forever.
+    research_turn_timeout_s: int = 90
+    # How long to wait for the MCP subprocess handshake before giving up and
+    # falling back to in-process tools.
+    mcp_startup_timeout_s: int = 25
+    # Per-request LLM network timeout (seconds). Bounds a single model call
+    # so a wedged connection can't hang a run; the SDK default is 600s.
+    llm_request_timeout_s: float = 60.0
+
     # Email delivery for the human gate. With no RESEND_API_KEY set, the
     # console adapter logs the review email instead of sending it.
     review_email_to: str | None = None
