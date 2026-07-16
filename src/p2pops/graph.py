@@ -101,11 +101,14 @@ async def request_review_node(state: PipelineState) -> dict:
     ideas = [i for i in run.ideas if i.id in set(state["shortlisted_ids"])]
     reviews = {idea.id: await repo.create_review(run_id, idea.id) for idea in ideas}
 
-    await notify.send_review_request(run, ideas, reviews)
+    emailed = await notify.send_review_request(run, ideas, reviews)
     await repo.set_run_status(run_id, "awaiting_review")
-    await repo.add_event(
-        run_id, "human-gate", "review_requested", f"{len(ideas)} ideas sent for review"
+    detail = (
+        f"{len(ideas)} ideas sent for review"
+        if emailed
+        else f"{len(ideas)} ideas awaiting review — email delivery failed, approve via the console queue"
     )
+    await repo.add_event(run_id, "human-gate", "review_requested", detail)
     return {}
 
 
