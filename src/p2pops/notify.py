@@ -98,7 +98,12 @@ def build_review_email(run: Run, ideas: list[Idea], reviews: dict[str, Review]) 
     </div>"""
 
 
-async def send_review_request(run: Run, ideas: list[Idea], reviews: dict[str, Review]) -> None:
+async def send_review_request(run: Run, ideas: list[Idea], reviews: dict[str, Review]) -> bool:
+    """Email the human gate. Best-effort: the review tokens already exist and
+    the run is about to pause at the gate, so a delivery failure (an
+    unverified Resend sender 403s, say) must NOT crash the run — the operator
+    can still approve from the console approval queue. Returns whether the
+    email was actually handed off for delivery."""
     settings = get_settings()
     to = settings.review_email_to
     if not to:
@@ -107,8 +112,15 @@ async def send_review_request(run: Run, ideas: list[Idea], reviews: dict[str, Re
 
     html = build_review_email(run, ideas, reviews)
     subject = f"[ProToPro] {len(ideas)} idea{'s' if len(ideas) != 1 else ''} awaiting your decision"
-    with logfire.span("notify.review_request", run_id=run.id, ideas=len(ideas)):
-        await notifier.send(to=to or "console@localhost", subject=subject, html=html)
+    try:
+        with logfire.span("notify.review_request", run_id=run.id, ideas=len(ideas)):
+            await notifier.send(to=to or "console@localhost", subject=subject, html=html)
+        return True
+    except Exception:
+        logger.exception(
+            "review email delivery failed — ideas are still awaiting decision in the console queue"
+        )
+        return False
 
 
 async def send_product_ready(ptp_number: int | None, product_name: str, deploy_url: str) -> None:
