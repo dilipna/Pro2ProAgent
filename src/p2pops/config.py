@@ -58,12 +58,17 @@ class Settings(BaseSettings):
     #   openai/gpt-oss-20b              8,000 TPM
     #   openai/gpt-oss-120b             8,000 TPM
     #   llama-3.3-70b-versatile        12,000 TPM
-    #   llama-4-scout-17b-16e-instruct 30,000 TPM  <- picked: verified tool
-    #                                                calling + structured
-    #                                                output work, 3.75x the
-    #                                                headroom of gpt-oss-20b
+    #   llama-4-scout-17b-16e-instruct 30,000 TPM  <- was the default
+    #
+    # 2026-09-15: Groq retired llama-4-scout and llama-3.3-70b (the models
+    # endpoint no longer lists them; calls 404 model_not_found). Re-measured
+    # via x-ratelimit-limit-tokens: gpt-oss-20b, gpt-oss-120b and
+    # qwen3.8-27b are all 8,000 TPM / 1,000 RPD, and all three call tools.
+    # gpt-oss-20b is the default so research/analyst draw from a different
+    # per-model bucket than the builder model. At 8k TPM, compact tool
+    # results matter even more (see tools/xploremore.py).
     groq_api_key: str | None = None
-    groq_default_model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
+    groq_default_model: str = "openai/gpt-oss-20b"
     groq_builder_model: str = "openai/gpt-oss-120b"
 
     @property
