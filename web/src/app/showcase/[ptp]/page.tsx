@@ -151,6 +151,32 @@ export default async function StoryPage({ params }: { params: Promise<{ ptp: str
           <SectionLabel>01 · The problem</SectionLabel>
           <div className="glass rounded-2xl p-7">
             <p className="max-w-2xl text-[15px] leading-relaxed text-mist-200">{story.description}</p>
+            {story.provenance && (
+              <div className="mt-5">
+                <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-maroon-300">
+                  {story.provenance.card_line}
+                </p>
+                {story.provenance.platforms.length > 0 && (
+                  <p className="mt-1 font-mono text-[11px] text-mist-500">
+                    {story.provenance.platforms.join(" · ")}
+                  </p>
+                )}
+                <ul className="mt-3 space-y-1">
+                  {story.provenance.evidence_urls.map((url) => (
+                    <li key={url}>
+                      <a
+                        href={url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="break-all font-mono text-[11px] text-mist-500 transition-colors hover:text-maroon-300"
+                      >
+                        {url} ↗
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2 border-t hairline pt-5">
               <span className="font-mono text-[11px] text-mist-500">
                 discovered {new Date(story.discovered_at).toLocaleDateString()}

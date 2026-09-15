@@ -5,6 +5,7 @@ this is the single place that owns SQL semantics, so the graph, the API,
 and the notifier never touch the ORM directly.
 """
 
+import json
 import secrets
 from datetime import UTC, datetime, timedelta
 
@@ -12,7 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
 from ..config import get_settings
-from ..models import AnalyzedIdea
+from ..models import AnalyzedIdea, XploreMoreProvenance
 from .engine import session
 from .models import (
     Build,
@@ -161,6 +162,8 @@ async def save_idea(analyzed: AnalyzedIdea, run_id: str | None = None) -> Idea:
             score=analyzed.score,
             reasoning=analyzed.reasoning,
             status=analyzed.status,
+            xploremore_problem_id=analyzed.problem_id,
+            provenance=analyzed.provenance.model_dump_json() if analyzed.provenance else None,
         )
         s.add(idea)
         await s.commit()
@@ -362,6 +365,19 @@ async def showcase_items(limit: int = 24) -> list[dict]:
         return items
 
 
+def provenance_out(raw: str | None) -> dict | None:
+    """Stored provenance JSON -> API shape, with the showcase card line
+    ("Discovered via XploreMore: N people across M sources") computed in one
+    place. Unreadable legacy values read as no provenance, never an error."""
+    if not raw:
+        return None
+    try:
+        provenance = XploreMoreProvenance.model_validate(json.loads(raw))
+    except ValueError:
+        return None
+    return {**provenance.model_dump(), "card_line": provenance.card_line}
+
+
 def _showcase_item(idea: Idea, opp: Opportunity | None, build: Build | None) -> dict:
     if build is not None and build.status == "complete" and build.deploy_url:
         stage = "live"
@@ -389,6 +405,7 @@ def _showcase_item(idea: Idea, opp: Opportunity | None, build: Build | None) -> 
         "build_status": build.status if build else None,
         "deploy_url": build.deploy_url if build else None,
         "discovered_at": idea.discovered_at,
+        "provenance": provenance_out(idea.provenance),
     }
 
 

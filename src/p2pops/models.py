@@ -3,6 +3,31 @@
 from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field, field_validator
+from pydantic.json_schema import SkipJsonSchema
+
+
+class XploreMoreProvenance(BaseModel):
+    """Where an idea's demand evidence came from, when it was discovered via
+    XploreMore's problem API (ADR-0012).
+
+    Always attached by code from the tool results the agent actually
+    received (`tools/xploremore.attach_provenance`), never taken from the
+    model's output -- an LLM can quote a problem id it never saw, and a
+    showcase card claiming "23 people" must trace back to a real response.
+    """
+
+    problem_id: int
+    voices: int
+    sources: int
+    platforms: list[str] = Field(default_factory=list)
+    demand: float | None = None
+    evidence_urls: list[str] = Field(default_factory=list)
+
+    @property
+    def card_line(self) -> str:
+        people = "person" if self.voices == 1 else "people"
+        sources = "source" if self.sources == 1 else "sources"
+        return f"Discovered via XploreMore: {self.voices} {people} across {self.sources} {sources}"
 
 
 class DiscoveredIdea(BaseModel):
@@ -11,6 +36,16 @@ class DiscoveredIdea(BaseModel):
     title: str
     description: str
     source_url: str
+    problem_id: int | None = Field(
+        default=None,
+        description=(
+            "The XploreMore problem id, copied exactly from a find_problems or get_problem "
+            "result, when this idea comes from one. Leave null otherwise."
+        ),
+    )
+    # Hidden from the model's response schema: code fills it (see
+    # XploreMoreProvenance), and overwrites anything the model sends.
+    provenance: SkipJsonSchema[XploreMoreProvenance | None] = None
 
 
 class ResearchReport(BaseModel):
@@ -46,6 +81,8 @@ class AnalyzedIdea(BaseModel):
     title: str
     description: str
     source_url: str
+    problem_id: int | None = None
+    provenance: XploreMoreProvenance | None = None
     score: int | None = None
     reasoning: str | None = None
     status: str = "new"  # new | shortlisted | rejected | duplicate

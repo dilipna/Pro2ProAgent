@@ -16,6 +16,7 @@ from .config import get_settings
 
 COLLECTION_NAME = "discovered_ideas"
 DUPLICATE_DISTANCE_THRESHOLD = 0.3
+PROBLEM_ID_KEY = "xploremore_problem_id"
 
 
 @lru_cache
@@ -40,7 +41,20 @@ def find_duplicate(text: str) -> str | None:
     return None
 
 
-def remember(idea_id: str, text: str) -> None:
-    """Stores `text`'s embedding under `idea_id` so future ideas can be checked against it."""
+def find_problem_duplicate(problem_id: int) -> str | None:
+    """Returns the id of an idea already remembered for this XploreMore problem, if any."""
     collection = _get_collection()
-    collection.add(ids=[idea_id], documents=[text])
+    if collection.count() == 0:
+        return None
+    result = collection.get(where={PROBLEM_ID_KEY: problem_id}, limit=1)
+    return result["ids"][0] if result["ids"] else None
+
+
+def remember(idea_id: str, text: str, problem_id: int | None = None) -> None:
+    """Stores `text`'s embedding under `idea_id` so future ideas can be checked
+    against it, tagged with its XploreMore problem id when it has one."""
+    collection = _get_collection()
+    if problem_id is None:
+        collection.add(ids=[idea_id], documents=[text])
+    else:
+        collection.add(ids=[idea_id], documents=[text], metadatas=[{PROBLEM_ID_KEY: problem_id}])

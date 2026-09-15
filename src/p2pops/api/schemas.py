@@ -2,7 +2,21 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from ..db.repository import provenance_out
+
+
+class ProvenanceOut(BaseModel):
+    """XploreMore provenance (ADR-0012); `card_line` is the showcase text."""
+
+    problem_id: int
+    voices: int
+    sources: int
+    platforms: list[str]
+    demand: float | None
+    evidence_urls: list[str]
+    card_line: str
 
 
 class RunCreate(BaseModel):
@@ -33,6 +47,16 @@ class IdeaOut(BaseModel):
     reasoning: str | None
     status: str
     discovered_at: datetime
+    xploremore_problem_id: int | None = None
+    provenance: ProvenanceOut | None = None
+
+    @field_validator("provenance", mode="before")
+    @classmethod
+    def _parse_stored_provenance(cls, value: object) -> object:
+        # The ORM column holds JSON text; repository.provenance_out owns the shape.
+        if isinstance(value, str) or value is None:
+            return provenance_out(value)
+        return value
 
 
 class RunOut(BaseModel):
@@ -147,6 +171,7 @@ class ShowcaseItemOut(BaseModel):
     build_status: str | None
     deploy_url: str | None
     discovered_at: datetime
+    provenance: ProvenanceOut | None = None
 
 
 class ShowcaseDetailOut(ShowcaseItemOut):

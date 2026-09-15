@@ -10,7 +10,7 @@ import logfire
 from p2pops import cost_tracking
 from p2pops.chat_model import get_chat_model
 from p2pops.guardrails import is_idea_allowed
-from p2pops.memory import find_duplicate
+from p2pops.memory import find_duplicate, find_problem_duplicate
 from p2pops.models import AnalyzedIdea, DiscoveredIdea, IdeaVerdict
 from p2pops.resilience import with_retry
 
@@ -25,6 +25,21 @@ SCORE_PROMPT_TEMPLATE = (
 )
 
 
+def score_prompt(idea: DiscoveredIdea) -> str:
+    """The scoring prompt, plus measured demand when the idea came from
+    XploreMore. Ideas without provenance get the exact original prompt, so
+    the promptfoo scenarios keep testing the same text."""
+    prompt = SCORE_PROMPT_TEMPLATE.format(title=idea.title, description=idea.description)
+    p = idea.provenance
+    if p is None:
+        return prompt
+    platforms = ", ".join(p.platforms) or "unknown platforms"
+    return (
+        f"{prompt}\nMeasured demand (counted by XploreMore from public posts, not estimated): "
+        f"{p.voices} distinct people across {p.sources} sources ({platforms})."
+    )
+
+
 async def analyze_idea(idea: DiscoveredIdea) -> AnalyzedIdea:
     """Runs one discovered idea through guardrails, dedupe, and scoring."""
     combined_text = f"{idea.title}\n{idea.description}"
@@ -36,7 +51,12 @@ async def analyze_idea(idea: DiscoveredIdea) -> AnalyzedIdea:
                 **idea.model_dump(), status="rejected", reasoning="Blocked by guardrails"
             )
 
-        duplicate_id = find_duplicate(combined_text)
+        # An idea for an XploreMore problem we already hold is a duplicate by
+        # identity, however differently the model worded it this time.
+        duplicate_id = None
+        if idea.problem_id is not None:
+            duplicate_id = find_problem_duplicate(idea.problem_id)
+        duplicate_id = duplicate_id or find_duplicate(combined_text)
         if duplicate_id:
             return AnalyzedIdea(
                 **idea.model_dump(),
@@ -49,9 +69,7 @@ async def analyze_idea(idea: DiscoveredIdea) -> AnalyzedIdea:
             # See venture/agents.py::_structured for why parsing_error/None
             # must be re-raised rather than silently returned -- same
             # retry-on-malformed-output contract applies here.
-            result = await model.ainvoke(
-                SCORE_PROMPT_TEMPLATE.format(title=idea.title, description=idea.description)
-            )
+            result = await model.ainvoke(score_prompt(idea))
             if result.get("parsing_error") is not None:
                 raise result["parsing_error"]
             verdict = result.get("parsed")

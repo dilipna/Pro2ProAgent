@@ -20,6 +20,17 @@ const REVALIDATE_SECONDS = 120;
 
 const TIMEOUT_MS = 2500;
 
+/** XploreMore provenance (ADR-0012); `card_line` is computed by the API. */
+export interface ApiProvenance {
+  problem_id: number;
+  voices: number;
+  sources: number;
+  platforms: string[];
+  demand: number | null;
+  evidence_urls: string[];
+  card_line: string;
+}
+
 export interface ApiIdea {
   id: string;
   run_id: string | null;
@@ -31,6 +42,8 @@ export interface ApiIdea {
   reasoning: string | null;
   status: string;
   discovered_at: string;
+  xploremore_problem_id?: number | null;
+  provenance?: ApiProvenance | null;
 }
 
 export interface ApiShowcaseItem {
@@ -49,6 +62,8 @@ export interface ApiShowcaseItem {
   build_status: string | null;
   deploy_url: string | null;
   discovered_at: string;
+  /** Optional: older API deployments don't send it. */
+  provenance?: ApiProvenance | null;
 }
 
 export interface ApiShowcaseDetail extends ApiShowcaseItem {

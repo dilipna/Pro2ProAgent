@@ -45,7 +45,8 @@ async def research_node(state: PipelineState) -> dict:
 
     duration_ms = (time.monotonic() - t0) * 1000
     for idea in report.ideas:
-        await repo.add_event(run_id, "research", "idea_discovered", idea.title)
+        via = f" [{idea.provenance.card_line}]" if idea.provenance else ""
+        await repo.add_event(run_id, "research", "idea_discovered", f"{idea.title}{via}")
     await repo.add_event(
         run_id,
         "research",
@@ -74,7 +75,7 @@ async def analyst_node(state: PipelineState) -> dict:
 
         counts[analyzed.status] = counts.get(analyzed.status, 0) + 1
         if analyzed.status != "duplicate":
-            remember(row.id, f"{analyzed.title}\n{analyzed.description}")
+            remember(row.id, f"{analyzed.title}\n{analyzed.description}", problem_id=analyzed.problem_id)
         if analyzed.status == "shortlisted":
             shortlisted_ids.append(row.id)
 
