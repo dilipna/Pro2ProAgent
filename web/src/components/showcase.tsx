@@ -47,6 +47,7 @@ function toCase(item: ApiShowcaseItem): CaseStudy {
     status: STAGE_TO_STATUS[item.stage],
     liveUrl: item.deploy_url,
     storyHref: `/showcase/${id.toLowerCase()}`,
+    discoveredVia: item.provenance?.card_line ?? null,
   };
 }
 
@@ -131,6 +132,12 @@ export async function Showcase() {
                 <p className="mt-4 flex-1 text-sm leading-relaxed text-mist-300">
                   {c.insight}
                 </p>
+
+                {c.discoveredVia && (
+                  <p className="mt-4 font-mono text-[10px] uppercase tracking-[0.12em] text-maroon-300">
+                    {c.discoveredVia}
+                  </p>
+                )}
 
                 {c.liveUrl && (
                   <a

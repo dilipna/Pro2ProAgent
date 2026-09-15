@@ -48,7 +48,7 @@ def get_engine() -> AsyncEngine:
 # gets more complicated than additive nullable columns.
 _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
     "runs": [("source", "VARCHAR(20) DEFAULT 'operator'"), ("keyword", "TEXT")],
-    "ideas": [("ptp_number", "INTEGER")],
+    "ideas": [("ptp_number", "INTEGER"), ("xploremore_problem_id", "INTEGER"), ("provenance", "TEXT")],
     "builds": [("deploy_url", "TEXT")],
 }
 

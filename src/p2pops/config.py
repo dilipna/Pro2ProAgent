@@ -26,6 +26,8 @@ _BLANKABLE_FIELDS = (
     "api_token",
     "vercel_token",
     "vercel_team_id",
+    "xploremore_api_url",
+    "xploremore_api_key",
 )
 
 
@@ -120,14 +122,26 @@ class Settings(BaseSettings):
     # to in-process if the MCP transport fails, so a run never stalls.
     research_tools: Literal["mcp", "in_process"] = "mcp"
     # Hard ceiling on a single research turn; on expiry the run fails loudly
-    # instead of sitting "running" forever.
-    research_turn_timeout_s: int = 90
+    # instead of sitting "running" forever. 240 s (was 90): on an 8,000 TPM
+    # tier a turn legitimately waits out rate-limit windows between calls.
+    research_turn_timeout_s: int = 240
     # How long to wait for the MCP subprocess handshake before giving up and
     # falling back to in-process tools.
     mcp_startup_timeout_s: int = 25
     # Per-request LLM network timeout (seconds). Bounds a single model call
     # so a wedged connection can't hang a run; the SDK default is 600s.
     llm_request_timeout_s: float = 60.0
+
+    # XploreMore problem API (ADR-0012): clustered, demand-ranked problems
+    # the Research Agent queries before HN/web. Unset URL = the tools are
+    # not offered at all and research runs on HN/web only.
+    xploremore_api_url: str | None = None
+    xploremore_api_key: str | None = None
+    xploremore_timeout_s: float = 5.0
+    # Circuit breaker: after this many consecutive failures the tools are
+    # withdrawn for xploremore_breaker_open_s seconds.
+    xploremore_breaker_failures: int = 3
+    xploremore_breaker_open_s: float = 60.0
 
     # Email delivery for the human gate. With no RESEND_API_KEY set, the
     # console adapter logs the review email instead of sending it.

@@ -84,6 +84,11 @@ class Idea(Base):
     # new | shortlisted | rejected | duplicate | approved | declined
     status: Mapped[str] = mapped_column(String(20), default="new", index=True)
     discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # XploreMore provenance (ADR-0012): the problem id and an
+    # XploreMoreProvenance JSON snapshot as of discovery (voices, sources,
+    # platforms, evidence URLs). Null for HN/web-discovered ideas.
+    xploremore_problem_id: Mapped[int | None] = mapped_column(Integer, index=True, default=None)
+    provenance: Mapped[str | None] = mapped_column(Text, default=None)
 
     run: Mapped[Run | None] = relationship(back_populates="ideas")
     reviews: Mapped[list["Review"]] = relationship(back_populates="idea", lazy="selectin")

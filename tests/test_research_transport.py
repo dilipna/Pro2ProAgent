@@ -14,6 +14,9 @@ from p2pops.config import get_settings
 @pytest.fixture(autouse=True)
 def _reset_breaker(monkeypatch):
     monkeypatch.setattr(research, "_mcp_unhealthy", False)
+    # These tests pin the HN/web toolset; a local XPLOREMORE_API_URL in .env
+    # must not add the XploreMore tools (covered in test_xploremore.py).
+    monkeypatch.setenv("XPLOREMORE_API_URL", "")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()

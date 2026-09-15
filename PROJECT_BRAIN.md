@@ -565,6 +565,8 @@ LOGFIRE_TOKEN=
 # --- Discovery sources ---
 REDDIT_CLIENT_ID=              # unused -- Reddit source not implemented
 REDDIT_CLIENT_SECRET=
+XPLOREMORE_API_URL=            # blank = HN/web discovery only (ADR-0012)
+XPLOREMORE_API_KEY=
 
 # --- HITL orchestration (human gate, ADR-0002) ---
 REVIEW_INTERVAL_DAYS=10
@@ -590,7 +592,7 @@ Note: **blank values are safe** — `config.py`'s `_blank_to_none` validator nor
 ### Commands
 ```bash
 # Backend
-uv run pytest                        # 56 tests
+uv run pytest                        # 119 tests (2026-09-15)
 uv run ruff check src tests          # lint (CI's exact command)
 uv run p2pops                        # bootstrap check (one LLM call)
 uv run p2pops-research "<topic>"     # Research Agent standalone
@@ -600,6 +602,8 @@ uv run p2pops-mcp-server             # MCP server standalone (stdio)
 uv run p2pops-eval                   # Analyst-vs-human agreement report
 uv run p2pops-build <opportunity_id> # scaffold one complete opportunity (build-squad)
 uv run p2pops-promptfoo-provider ... # promptfoo's exec: provider entrypoint (not called directly)
+uv run p2pops-discovery-ab run --topics-file T --out ab.jsonl   # XploreMore vs HN/web discovery A/B (real LLM calls)
+uv run p2pops-discovery-ab report --in ab.jsonl --out report.md
 
 # Frontend
 cd web && pnpm dev                   # http://localhost:3000
@@ -659,6 +663,9 @@ npx promptfoo@latest eval -c promptfooconfig.yaml --no-cache
 | `src/p2pops/notify.py` | Email HITL delivery + product-ready notification | Implements ADR-0002; `send_product_ready` closes the loop's email story | Called by `graph.request_review_node` and `build/graph.publish_node` |
 | `src/p2pops/publish.py` | Product packaging + Vercel deploy + smoke check | The Publish stage — deterministic code, honest failure modes (ADR-0010) | Called by `build/graph.publish_node`; needs `VERCEL_TOKEN` |
 | `src/p2pops/tools/websearch.py` | Keyless general web search (DuckDuckGo HTML) | Broadens Research beyond HN without a paid search API | Exposed as the `search_web` MCP tool in `mcp/server.py` |
+| `src/p2pops/tools/xploremore.py` | XploreMore problem API client, breaker, tools, provenance | Discovery from clustered, demand-ranked problems without depending on XploreMore being up (ADR-0012) | Bound by `agents/research.py` and `mcp/server.py`; provenance read by analyst, memory, repository |
+| `contracts/xploremore/problems.v1.openapi.json` | Vendored provider contract | Consumer-side contract test | `tests/test_xploremore.py` |
+| `src/p2pops/evals/discovery_ab.py` | Discovery-source A/B harness + report | Measures XploreMore vs HN/web discovery instead of assuming | `p2pops-discovery-ab` CLI |
 | `src/p2pops/mcp/server.py` | MCP tool server | Makes Research Agent's tools a real, portable MCP service | Connected to by `agents/research.py` via `langchain-mcp-adapters` |
 | `Dockerfile` / `web/Dockerfile` | Multi-stage production images | ADR-0007; the actual images running on Render/behind Vercel-adjacent infra | `docker-compose.yml`, `render.yaml`'s `dockerfilePath` |
 | `docker-compose.yml` / `.dev.yml` | One-command local startup + hot-reload override | Verified live: both containers healthy, web→api over the compose network | `deploy/README.md` |
@@ -684,6 +691,30 @@ npx promptfoo@latest eval -c promptfooconfig.yaml --no-cache
 ---
 
 ## 15. Session Handoff — READ THIS FIRST
+
+### Most recent session (2026-09-15, XploreMore integration, ADR-0012; Groq model retirement)
+
+**1. Groq retired the default model (found by the baseline test run, fixed first, commit `76ae381`).** `meta-llama/llama-4-scout-17b-16e-instruct` (and llama-3.3-70b) now 404 `model_not_found`, which failed `tests/test_guardrails.py` and would fail every discovery run. **Production on Render is very likely broken the same way until this is deployed.** Re-measured this account: gpt-oss-20b, gpt-oss-120b and qwen3.8-27b are all **8,000 TPM / 1,000 RPD** and all call tools. Default is now `openai/gpt-oss-20b`.
+
+**2. 8k TPM broke research itself; fixed with per-call retry.** First live run: `research failed after 4 attempt(s)` at "Used 7547, Requested 2174". `with_retry` wrapped the whole ReAct turn, so each retry re-spent every earlier step's tokens. `get_chat_model(retry_calls_as=...)` (`RetryingChatOpenAI/Anthropic`) now retries *only the call* that hit a 429, through the same `resilience.with_retry` seam. Only the research agent opts in; the analyst and venture agents already wrap single calls. The whole-turn retry dropped to 2 attempts. `research_turn_timeout_s` went 90 → 240, because a turn now legitimately waits out TPM windows.
+
+**3. XploreMore problem discovery (ADR-0012).**
+- `tools/xploremore.py`: async httpx client, 5 s timeout, `X-XM-Api-Key`; circuit breaker (3 failures → open 60 s → half-open); 429 holds for `Retry-After` without counting as a failure; compact results.
+- `find_problems` / `get_problem` are bound in-process in `agents/research.py` **and** as `@mcp.tool()` in `mcp/server.py`.
+- Fallback is decided in code: `availability()` binds the tools and the XploreMore prompt only when configured and the breaker is closed. Mid-run failures return an explicit non-empty "unavailable, use search_hacker_news/search_web" result.
+- Provenance is attached by **code** from the tool results actually received. Invented ids are dropped and model-supplied provenance is overwritten. It then flows through: dedupe by problem id → analyst prompt ("measured demand") → `ideas.xploremore_problem_id` / `ideas.provenance` (additive columns) → `IdeaOut` / showcase API `provenance.card_line` → web showcase card and story page ("Discovered via XploreMore: N people across M sources").
+- Tests: `tests/test_xploremore.py` (28) validates every mock payload and query string against the vendored contract. It also covers breaker, 429, fallback, provenance and persistence. `tests/test_chat_model_retry.py`, `tests/test_discovery_ab.py`. **119 tests pass**, ruff clean, `pnpm lint` / `pnpm build` clean.
+
+**4. Local end-to-end (real Groq + real XploreMore dev API on :8765, scratch DATA_DIR, console email adapter), run `34b02b86…`:**
+- **Result:** research → analyst → `awaiting_review` in 279 s wall time. Research took 230 s with 11 per-call rate-limit waits; the analyst took 24 s.
+- **XploreMore calls:** 5, all 200. The agent called `find_problems` 3 times despite "exactly once". The topic had no multi-voice problems in XploreMore's dev corpus, so the client relaxed to `min_voices=1`.
+- **Ideas:** 3. Two carried provenance (problems 1866 and 1614, 1 voice / 1 source each), were scored 10 and rejected. The third (HN/web-sourced) was scored 70 and shortlisted as PTP-004 in the scratch DB.
+- **Tokens:** research 10 LLM calls, 29,307 in / 2,957 out; analyst 3 calls, 1,196 / 480.
+- **Takeaway:** the integration works end to end, but one run shows nothing about quality. That is the A/B harness's job (`p2pops-discovery-ab`, report in XploreMore `docs/reports/pro2pro-discovery-ab.md`).
+
+**Needs the user:** deploy (push → Render) to fix the retired-model outage in prod. Optionally set `XPLOREMORE_API_URL` / `XPLOREMORE_API_KEY` in Render once XploreMore is deployed (it only runs locally today).
+
+**Risk to watch:** research at 230 s is close to the 240 s turn ceiling on this 8k TPM tier. If turns start timing out, cap tool-call count in code or move research to a bigger-TPM provider.
 
 ### Most recent session (2026-07-15, Phase B.1: production pipeline was silently dead — root-caused and fixed, ADR-0011)
 

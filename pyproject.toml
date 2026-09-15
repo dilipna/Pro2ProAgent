@@ -39,6 +39,7 @@ p2pops-api = "p2pops.api.app:main"
 p2pops-eval = "p2pops.evals.analyst_eval:main"
 p2pops-build = "p2pops.build_cli:main"
 p2pops-promptfoo-provider = "p2pops.evals.promptfoo_provider:main"
+p2pops-discovery-ab = "p2pops.evals.discovery_ab:main"
 
 [build-system]
 requires = ["uv_build>=0.11.23,<0.12.0"]
@@ -46,6 +47,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "jsonschema>=4.26.0",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "ruff>=0.14.0",

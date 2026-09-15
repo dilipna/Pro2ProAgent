@@ -23,6 +23,38 @@ from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
 
 from .config import GROQ_BASE_URL, OPENROUTER_BASE_URL, get_settings
+from .resilience import with_retry
+
+# Per-call retry, opt-in for multi-call agent loops only (`retry_calls_as`).
+#
+# A ReAct turn makes one model call per step with a growing history; retrying
+# the *whole turn* on a 429 re-spends every earlier step's tokens. On an
+# 8,000 TPM tier (Groq, 2026-09-15) that never converges -- observed live:
+# research failed after 4 whole-turn attempts at "Used 7547, Requested 2174".
+# Retrying only the call that hit the limit, after the provider's suggested
+# wait, resumes the loop where it stopped. It is still the single retry seam
+# (ADR-0005) and SDK retries stay off. Single-call sites (analyst, venture)
+# already wrap their call in with_retry and must not opt in, or retries stack.
+
+
+class RetryingChatOpenAI(ChatOpenAI):
+    retry_agent: str = "llm"
+
+    async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs):
+        parent = super()._agenerate
+        return await with_retry(
+            lambda: parent(messages, stop=stop, run_manager=run_manager, **kwargs), agent=self.retry_agent
+        )
+
+
+class RetryingChatAnthropic(ChatAnthropic):
+    retry_agent: str = "llm"
+
+    async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs):
+        parent = super()._agenerate
+        return await with_retry(
+            lambda: parent(messages, stop=stop, run_manager=run_manager, **kwargs), agent=self.retry_agent
+        )
 
 
 def resolve_model(tier: Literal["default", "builder"] = "default") -> tuple[str, str]:
@@ -44,18 +76,25 @@ def get_chat_model(
     tier: Literal["default", "builder"] = "default",
     max_tokens: int = 2048,
     temperature: float | None = None,
+    retry_calls_as: str | None = None,
 ):
     """`max_tokens` defaults conservatively -- low-credit accounts on
     OpenRouter (and similar) reject a request outright if a model's uncapped
     default output length costs more than the account can afford.
     `temperature=0` is used by the venture pipeline for reproducible,
-    explainable outputs.
+    explainable outputs. `retry_calls_as` (agent label) turns on per-call
+    retry for multi-call agent loops; see RetryingChatOpenAI above.
     """
     settings = get_settings()
     provider, model_name = resolve_model(tier)
     extra: dict = {}
     if temperature is not None:
         extra["temperature"] = temperature
+    openai_cls: type[ChatOpenAI] = ChatOpenAI
+    anthropic_cls: type[ChatAnthropic] = ChatAnthropic
+    if retry_calls_as:
+        openai_cls, anthropic_cls = RetryingChatOpenAI, RetryingChatAnthropic
+        extra["retry_agent"] = retry_calls_as
 
     # A per-request network timeout so a wedged connection surfaces as a
     # retryable error (resilience.with_retry treats a status-less failure as
@@ -64,7 +103,7 @@ def get_chat_model(
     timeout = settings.llm_request_timeout_s
 
     if provider == "openrouter":
-        return ChatOpenAI(
+        return openai_cls(
             model=model_name,
             api_key=settings.openrouter_api_key,
             base_url=OPENROUTER_BASE_URL,
@@ -75,7 +114,7 @@ def get_chat_model(
         )
 
     if provider == "groq":
-        return ChatOpenAI(
+        return openai_cls(
             model=model_name,
             api_key=settings.groq_api_key,
             base_url=GROQ_BASE_URL,
@@ -85,7 +124,7 @@ def get_chat_model(
             **extra,
         )
 
-    return ChatAnthropic(
+    return anthropic_cls(
         model=model_name,
         api_key=settings.anthropic_api_key,
         max_tokens=max_tokens,

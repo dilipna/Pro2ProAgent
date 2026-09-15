@@ -14,8 +14,11 @@ sized to keep a full research turn comfortably inside that kind of budget,
 which is also just good hygiene against any provider's limits.
 """
 
+from typing import Any
+
 from mcp.server.fastmcp import FastMCP
 
+from p2pops.tools import xploremore
 from p2pops.tools.hn import search_hn
 from p2pops.tools.web import fetch_article_text
 from p2pops.tools.websearch import search_web as _search_web
@@ -63,6 +66,31 @@ def read_article(url: str) -> str:
     to a length that keeps a multi-tool-call agent turn inside tight
     provider rate limits."""
     return fetch_article_text(url, max_chars=MAX_ARTICLE_CHARS)
+
+
+@mcp.tool()
+async def find_problems(
+    topic: str,
+    category: xploremore.Category | None = None,
+    since_days: int = 30,
+    min_voices: int = 2,
+    limit: int = 5,
+) -> dict[str, Any]:
+    """Find real problems people report (HN, GitHub issues, Lobsters, Stack
+    Exchange), already clustered and ranked by demand by XploreMore. Each has
+    an id, voices (distinct people), sources and evidence URLs.
+
+    Same function the in-process transport binds (tools/xploremore.py, ADR-0012):
+    unconfigured, rate-limited or failing XploreMore yields an explicit
+    "unavailable" result, never an empty one."""
+    return await xploremore.find_problems(topic, category, since_days, min_voices, limit)
+
+
+@mcp.tool()
+async def get_problem(problem_id: int, evidence: int = 3) -> dict[str, Any]:
+    """Get one XploreMore problem by id with more evidence posts and its
+    demand breakdown."""
+    return await xploremore.get_problem(problem_id, evidence)
 
 
 def main() -> None:

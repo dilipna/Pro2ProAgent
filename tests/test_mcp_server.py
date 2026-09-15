@@ -20,7 +20,7 @@ async def test_mcp_server_exposes_expected_tools():
     tools = await client.get_tools()
     tool_names = {tool.name for tool in tools}
 
-    assert {"search_hacker_news", "read_article"} <= tool_names
+    assert {"search_hacker_news", "read_article", "search_web", "find_problems", "get_problem"} <= tool_names
 
 
 def test_search_never_returns_a_bare_empty_list():

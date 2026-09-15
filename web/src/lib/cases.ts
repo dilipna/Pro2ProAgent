@@ -20,6 +20,8 @@ export interface CaseStudy {
   liveUrl?: string | null;
   /** Internal story page (/showcase/ptp-xxx) for pipeline-backed items. */
   storyHref?: string;
+  /** "Discovered via XploreMore: N people across M sources", when measured. */
+  discoveredVia?: string | null;
 }
 
 export const CASES: CaseStudy[] = [
