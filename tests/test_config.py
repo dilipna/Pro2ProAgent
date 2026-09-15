@@ -37,6 +37,6 @@ def test_groq_provider_switches_model_and_key(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     settings = Settings(_env_file=None, llm_provider="groq", groq_api_key="gsk-test")
 
-    assert settings.default_model == "groq/meta-llama/llama-4-scout-17b-16e-instruct"
+    assert settings.default_model == "groq/openai/gpt-oss-20b"
     assert settings.builder_model == "groq/openai/gpt-oss-120b"
     assert settings.active_api_key == "gsk-test"
