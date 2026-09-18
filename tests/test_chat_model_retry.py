@@ -1,4 +1,5 @@
-"""Per-call retry for multi-call agent loops (chat_model.RetryingChatOpenAI).
+"""Per-call retry for multi-call agent loops (chat_model.RetryingChatOpenAI)
+and reasoning-effort passthrough for trivial-classification tasks.
 
 Regression for a live failure on Groq's 8,000 TPM tier: retrying a whole
 ReAct turn on a 429 re-spent every earlier step's tokens and never converged.
@@ -6,6 +7,7 @@ A 429 must retry only the call that hit it.
 """
 
 import pytest
+from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_openai import ChatOpenAI
@@ -60,5 +62,37 @@ def test_only_opted_in_callers_get_per_call_retry(monkeypatch):
         retrying = get_chat_model("default", retry_calls_as="research.llm")
         assert isinstance(retrying, RetryingChatOpenAI) and retrying.retry_agent == "research.llm"
         assert retrying.max_retries == 0
+    finally:
+        get_settings.cache_clear()
+
+
+def test_reasoning_effort_reaches_groq_but_not_other_providers(monkeypatch):
+    """Regression: guardrails.py's self-check went from a plain Yes/No answer
+    to an empty response (finish_reason="length") the moment the default
+    Groq model became a reasoning model (gpt-oss-20b, forced by Groq
+    retiring llama-4-scout) -- it spent its whole max_tokens budget on
+    hidden reasoning before emitting anything. reasoning_effort="low" fixed
+    it live (measured: 33 reasoning tokens instead of exhausting a 300-token
+    cap). It must reach Groq's request and must not break Anthropic, which
+    has no such concept for the models configured here."""
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+    monkeypatch.setenv("GROQ_API_KEY", "gsk-test")
+    get_settings.cache_clear()
+    try:
+        plain = get_chat_model("default")
+        assert plain.extra_body is None
+
+        low = get_chat_model("default", reasoning_effort="low")
+        assert low.extra_body == {"reasoning_effort": "low"}
+    finally:
+        get_settings.cache_clear()
+
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    get_settings.cache_clear()
+    try:
+        model = get_chat_model("default", reasoning_effort="low")
+        assert isinstance(model, ChatAnthropic)
+        assert not getattr(model, "extra_body", None)
     finally:
         get_settings.cache_clear()

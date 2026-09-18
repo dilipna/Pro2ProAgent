@@ -77,6 +77,7 @@ def get_chat_model(
     max_tokens: int = 2048,
     temperature: float | None = None,
     retry_calls_as: str | None = None,
+    reasoning_effort: Literal["low", "medium", "high"] | None = None,
 ):
     """`max_tokens` defaults conservatively -- low-credit accounts on
     OpenRouter (and similar) reject a request outright if a model's uncapped
@@ -84,6 +85,18 @@ def get_chat_model(
     `temperature=0` is used by the venture pipeline for reproducible,
     explainable outputs. `retry_calls_as` (agent label) turns on per-call
     retry for multi-call agent loops; see RetryingChatOpenAI above.
+
+    `reasoning_effort` only takes effect on Groq (silently ignored on other
+    providers, where it isn't a supported concept for the models configured
+    here). A reasoning model like `gpt-oss-20b` spends hidden reasoning
+    tokens before any visible output; found live via guardrails.py, a modest
+    `max_tokens` tuned for a trivial classification can let that reasoning
+    alone exhaust the budget and starve the model into an empty response
+    (`finish_reason="length"`). "low" cuts that overhead sharply (measured:
+    33 reasoning tokens instead of blowing a 300-token cap) for a task that
+    never needed deep reasoning. Only ask for this on tasks that are
+    genuinely trivial classification/extraction -- it trades away reasoning
+    quality, which matters for scoring or idea generation.
     """
     settings = get_settings()
     provider, model_name = resolve_model(tier)
@@ -95,6 +108,8 @@ def get_chat_model(
     if retry_calls_as:
         openai_cls, anthropic_cls = RetryingChatOpenAI, RetryingChatAnthropic
         extra["retry_agent"] = retry_calls_as
+    if reasoning_effort is not None and provider == "groq":
+        extra["extra_body"] = {"reasoning_effort": reasoning_effort}
 
     # A per-request network timeout so a wedged connection surfaces as a
     # retryable error (resilience.with_retry treats a status-less failure as

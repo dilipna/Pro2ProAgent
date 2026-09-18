@@ -61,3 +61,9 @@ services:
         sync: false
       - key: REVIEW_EMAIL_TO
         sync: false
+      # XploreMore problem discovery (ADR-0012). Blank = HN/web discovery only, exactly the
+      # prior behaviour; the code decides the fallback, not this config.
+      - key: XPLOREMORE_API_URL
+        sync: false
+      - key: XPLOREMORE_API_KEY
+        sync: false

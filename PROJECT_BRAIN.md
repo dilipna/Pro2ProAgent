@@ -592,7 +592,7 @@ Note: **blank values are safe** — `config.py`'s `_blank_to_none` validator nor
 ### Commands
 ```bash
 # Backend
-uv run pytest                        # 119 tests (2026-09-15)
+uv run pytest                        # 120 tests (2026-09-18)
 uv run ruff check src tests          # lint (CI's exact command)
 uv run p2pops                        # bootstrap check (one LLM call)
 uv run p2pops-research "<topic>"     # Research Agent standalone
@@ -691,6 +691,48 @@ npx promptfoo@latest eval -c promptfooconfig.yaml --no-cache
 ---
 
 ## 15. Session Handoff — READ THIS FIRST
+
+### Session update (2026-09-18): a second live regression from the same model switch, found by promptfoo
+
+Running the promptfoo suite live against the new default (`gpt-oss-20b`) surfaced a second,
+more severe bug than the 404 in item 1 below — this one **fails silently**.
+
+**Guardrails were failing closed on ordinary inputs.** `guardrails.py`'s self-check prompt has
+always capped `max_tokens: 300` for a trivial Yes/No classification. `gpt-oss-20b` is a
+*reasoning* model: it spends hidden reasoning tokens before any visible output, and for a
+longer/more nuanced input it burned the entire 300-token budget on reasoning and returned
+**empty content** (`finish_reason="length"`) before ever emitting Yes or No. NeMo Guardrails
+treats an unparseable self-check response as "blocked" — so **every idea whose input was
+non-trivial enough to make the model actually reason could get silently rejected as
+`"Blocked by guardrails"`**, with no error, no crash, nothing to see in the logs. This is worse
+than the 404: that one fails loudly and every run stops; this one runs to completion and just
+produces suspiciously few ideas. **Fix:** `get_chat_model(..., reasoning_effort="low")` — new
+parameter, Groq-only, sets `extra_body={"reasoning_effort": "low"}` — cut the same real prompt's
+reasoning tokens from exhausting the budget to 33 (measured), leaving the answer intact. Applied
+only in `guardrails.py`'s two rails (trivial classification); never applied to research,
+analyst-scoring or venture calls, where reasoning quality actually matters. Regression test:
+`tests/test_chat_model_retry.py::test_reasoning_effort_reaches_groq_but_not_other_providers`.
+
+**A second thing the same live run exposed, and did NOT paper over:** once the empty-response
+bug was fixed, the guardrail's `promptfoo` fixture ("Kubernetes CrashLoopBackOff gives no
+actionable diagnostic info") started failing *legitimately* — visible chain-of-thought showed
+the model reading the guardrail's own prompt literally ("is this a legitimate, specific
+**AI-related** problem") and correctly blocking a problem with zero AI/ML angle, consistent
+with what `RESEARCH_SYSTEM_PROMPT` and every other prompt in this codebase says the system is
+actually scoped to. **The fix was to re-scope the test fixture to a genuinely AI-related problem
+(agent tool-call idempotency), not to loosen the guardrail** — loosening it would let generic
+DevOps/software noise into real discovery runs, which is a product-scope decision, not a bug
+fix. All 5 promptfoo scenarios pass live against the current model
+(`npm_config_cache=<fresh dir> npx promptfoo@latest eval --no-cache`, this machine's own npm
+cache is corrupted — see §13 troubleshooting).
+
+**If you touch guardrails.py or switch models again:** re-run promptfoo live before trusting
+it. The push-triggered CI never calls a real LLM (§15 below, "Important implementation details"
+from the 2026-07-07 session already says this) — this exact class of regression is invisible to
+CI by design.
+
+Both fixes are committed together with the P5/XploreMore work (`p2pagent` HEAD after this
+session; see the commit log). 120 tests pass (119 + the new reasoning_effort test).
 
 ### Most recent session (2026-09-15, XploreMore integration, ADR-0012; Groq model retirement)
 

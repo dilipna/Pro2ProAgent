@@ -45,16 +45,32 @@ tests:
 
   # --- Analyst: a specific, painful, buildable problem should pass guardrails
   # and score meaningfully above the shortlist noise floor. -------------------
+  #
+  # Deliberately AI-related (2026-09-18): the prior fixture was a pure
+  # Kubernetes diagnostic problem with no AI angle at all. That passed under
+  # llama-4-scout, but switching to a reasoning model (gpt-oss-20b, forced by
+  # Groq retiring llama-4-scout) exposed real, visible chain-of-thought
+  # reasoning that reads the guardrail's own framing literally -- "is this a
+  # legitimate, specific *AI-related* problem" -- and correctly blocks a
+  # problem with zero AI/ML angle, matching what every other prompt in this
+  # codebase (RESEARCH_SYSTEM_PROMPT, the guardrail's own docstring) says
+  # this system is actually scoped to. That is the guardrail working
+  # correctly, not a regression: this scenario tests "a real problem passes
+  # and scores well," and re-scoping to a problem the system is actually
+  # meant to discover is the honest fix, not loosening the guardrail's
+  # AI-relatedness bar to paper over a pure-DevOps example that was always a
+  # borderline fit for what this pipeline ships.
   - vars:
       agent: analyst
       scenario: specific painful problem scores meaningfully
-      title: "Kubernetes CrashLoopBackOff gives no actionable diagnostic info"
+      title: "LLM agent frameworks retry tool calls without deduping side effects"
       description: >-
-        Every on-call engineer hits this: a pod is CrashLoopBackOff, `kubectl
-        describe` shows generic exit-code noise, and finding the real cause
-        means manually correlating logs across restarts. No existing tool
-        surfaces the actual root cause automatically; teams lose 30-60
-        minutes per incident to this exact workflow.
+        When an agent tool call times out and gets retried, frameworks like
+        LangGraph and AutoGen have no built-in way to know the first call
+        actually succeeded server-side -- so a retried payment or database
+        write can fire twice. Teams are hand-rolling idempotency keys per
+        tool because no framework provides one; this causes real production
+        incidents.
     assert:
       - type: is-json
       - type: javascript
