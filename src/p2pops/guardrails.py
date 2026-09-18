@@ -94,14 +94,17 @@ prompts:
 @lru_cache
 def _get_rails() -> LLMRails:
     config = RailsConfig.from_content(yaml_content=_CONFIG_YAML)
-    model = get_chat_model("default")
+    # low reasoning effort: a trivial Yes/No classification, not a task worth
+    # spending a reasoning model's hidden thinking budget on -- see
+    # get_chat_model's docstring for the live failure this fixes.
+    model = get_chat_model("default", reasoning_effort="low")
     return LLMRails(config=config, llm=LangChainLLMAdapter(model))
 
 
 @lru_cache
 def _get_search_rails() -> LLMRails:
     config = RailsConfig.from_content(yaml_content=_SEARCH_CONFIG_YAML)
-    model = get_chat_model("default")
+    model = get_chat_model("default", reasoning_effort="low")
     return LLMRails(config=config, llm=LangChainLLMAdapter(model))
 
 
