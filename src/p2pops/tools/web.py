@@ -22,9 +22,7 @@ def fetch_article_text(url: str, max_chars: int = 4000) -> str:
     explicit placeholder instead, same as the fetch-failure case below.
     """
     try:
-        response = httpx.get(
-            url, headers={"User-Agent": USER_AGENT}, timeout=10.0, follow_redirects=True
-        )
+        response = httpx.get(url, headers={"User-Agent": USER_AGENT}, timeout=10.0, follow_redirects=True)
         response.raise_for_status()
     except httpx.HTTPError as exc:
         return f"(could not fetch article: {exc})"

@@ -4,7 +4,7 @@ import { CASES, type CaseStatus, type CaseStudy } from "@/lib/cases";
 import { Reveal } from "./reveal";
 
 const STATUS_LABEL: Record<CaseStatus, string> = {
-  validated: "Validated · build queue",
+  validated: "Model-shortlisted · historical record",
   building: "In build",
   shipped: "Shipped",
 };
@@ -94,12 +94,11 @@ export async function Showcase() {
               <h2 className="mt-4 max-w-xl text-balance text-4xl leading-tight tracking-[-0.01em] md:text-5xl">
                 Problems the pipeline has
                 <span className="font-display italic text-maroon-300"> already </span>
-                validated
+                shortlisted
               </h2>
             </div>
             <p className="max-w-xs text-sm leading-relaxed text-mist-500">
-              Discovered in the wild, filtered by guardrails, scored by the
-              Analyst. First builds are queued behind the human gate.
+              Recorded pipeline outputs, including historical fallback examples. Model conviction scores are not independent validation of a problem or product.
             </p>
           </div>
         </Reveal>

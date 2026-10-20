@@ -20,6 +20,8 @@ export function Nav() {
         </Link>
 
         <nav className="hidden items-center gap-8 text-sm text-mist-300 md:flex">
+          <Link href="/discover" className="transition-colors hover:text-mist-50">Discover</Link>
+          <Link href="/workspace" className="transition-colors hover:text-mist-50">Workspace</Link>
           <a href="#showcase" className="transition-colors hover:text-mist-50">
             Showcase
           </a>

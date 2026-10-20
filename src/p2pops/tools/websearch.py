@@ -69,7 +69,9 @@ def search_web(query: str, limit: int = 6) -> list[WebResult]:
             continue
         snippet_el = item.select_one("a.result__snippet, div.result__snippet")
         snippet = " ".join(snippet_el.get_text(" ").split()) if snippet_el else ""
-        results.append(WebResult(title=link.get_text(" ").strip() or "(untitled)", url=url, snippet=snippet[:300]))
+        results.append(
+            WebResult(title=link.get_text(" ").strip() or "(untitled)", url=url, snippet=snippet[:300])
+        )
         if len(results) >= limit:
             break
     return results

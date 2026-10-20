@@ -87,6 +87,8 @@ export interface ApiSearchResult {
 }
 
 export interface ApiPendingReview {
+  snapshot?: Record<string, unknown> | null;
+  snapshot_sha256?: string | null;
   token: string;
   run_id: string;
   created_at: string;

@@ -68,9 +68,7 @@ def package_product(files: list[ScaffoldFile], ptp_number: int, product_name: st
 
     html_paths = [p for p in bundle if p.lower().endswith(".html")]
     if not html_paths:
-        raise PublishError(
-            "no HTML entry page in the build output — nothing browser-servable to publish"
-        )
+        raise PublishError("no HTML entry page in the build output — nothing browser-servable to publish")
     if "index.html" not in bundle:
         bundle["index.html"] = bundle.pop(html_paths[0])
 

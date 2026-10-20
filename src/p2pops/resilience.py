@@ -138,7 +138,9 @@ async def with_retry[T](
             if not _is_retryable(exc) or attempt == attempts:
                 break
             if _is_rate_limit_error(exc):
-                wait = (_extract_retry_after(exc) or base_delay * (2 ** (attempt - 1))) + RATE_LIMIT_SAFETY_MARGIN_S
+                wait = (
+                    _extract_retry_after(exc) or base_delay * (2 ** (attempt - 1))
+                ) + RATE_LIMIT_SAFETY_MARGIN_S
                 logger.warning(
                     "%s hit a rate limit (attempt %d/%d) -- waiting %.1fs", agent, attempt, attempts, wait
                 )
@@ -146,7 +148,11 @@ async def with_retry[T](
                 wait = base_delay * (2 ** (attempt - 1))
                 logger.warning(
                     "%s call failed (attempt %d/%d): %s -- retrying in %.1fs",
-                    agent, attempt, attempts, exc, wait,
+                    agent,
+                    attempt,
+                    attempts,
+                    exc,
+                    wait,
                 )
             await asyncio.sleep(wait)
     raise RuntimeError(f"{agent} failed after {tried} attempt(s)") from last_error

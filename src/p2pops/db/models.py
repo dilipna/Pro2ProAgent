@@ -89,6 +89,8 @@ class Idea(Base):
     # platforms, evidence URLs). Null for HN/web-discovered ideas.
     xploremore_problem_id: Mapped[int | None] = mapped_column(Integer, index=True, default=None)
     provenance: Mapped[str | None] = mapped_column(Text, default=None)
+    problem_brief: Mapped[str | None] = mapped_column(Text, default=None)
+    brief_sha256: Mapped[str | None] = mapped_column(String(64), unique=True, default=None)
 
     run: Mapped[Run | None] = relationship(back_populates="ideas")
     reviews: Mapped[list["Review"]] = relationship(back_populates="idea", lazy="selectin")
@@ -131,6 +133,7 @@ class Build(Base):
     # scaffolding | complete | needs_revision | failed
     status: Mapped[str] = mapped_column(String(20), default="scaffolding", index=True)
     dossier: Mapped[str | None] = mapped_column(Text, default=None)
+    acceptance: Mapped[str | None] = mapped_column(Text, default=None)
     # Public URL of the deployed product, set by the publish stage on a
     # successful Vercel deploy + smoke check. None = built but not published.
     deploy_url: Mapped[str | None] = mapped_column(Text, default=None)
@@ -197,5 +200,7 @@ class Review(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    snapshot: Mapped[str | None] = mapped_column(Text, default=None)
+    snapshot_sha256: Mapped[str | None] = mapped_column(String(64), default=None)
 
     idea: Mapped[Idea] = relationship(back_populates="reviews")

@@ -45,8 +45,18 @@ def build_fake_structured(*, problem_is_real: bool, stress_rounds_to_clean: int)
         if schema is SegmentAnalysis:
             return SegmentAnalysis(
                 segments=[
-                    UserSegment(name="platform teams", motivation="fewer incidents", current_workaround="scripts", reachability=70),
-                    UserSegment(name="solo builders", motivation="ship faster", current_workaround="none", reachability=50),
+                    UserSegment(
+                        name="platform teams",
+                        motivation="fewer incidents",
+                        current_workaround="scripts",
+                        reachability=70,
+                    ),
+                    UserSegment(
+                        name="solo builders",
+                        motivation="ship faster",
+                        current_workaround="none",
+                        reachability=50,
+                    ),
                 ],
                 primary_segment="platform teams",
                 confidence=0.8,
@@ -62,7 +72,9 @@ def build_fake_structured(*, problem_is_real: bool, stress_rounds_to_clean: int)
             )
         if schema is CompetitorLandscape:
             return CompetitorLandscape(
-                solutions=[ExistingSolution(name="ToolX", approach="dashboards", shortcoming="no cause analysis")],
+                solutions=[
+                    ExistingSolution(name="ToolX", approach="dashboards", shortcoming="no cause analysis")
+                ],
                 unserved_gap="explain WHY an agent failed, not just that it failed",
                 saturation=40,
                 confidence=0.75,
@@ -138,15 +150,17 @@ def build_fake_structured(*, problem_is_real: bool, stress_rounds_to_clean: int)
 async def fake_evidence(title: str, description: str) -> EvidenceBundle:
     return EvidenceBundle(
         query=title,
-        items=[EvidenceItem(source="hackernews", title="thread", url="https://hn.example", detail="500 points")],
+        items=[
+            EvidenceItem(source="hackernews", title="thread", url="https://hn.example", detail="500 points")
+        ],
     )
 
 
 async def run_venture(monkeypatch, *, problem_is_real=True, stress_rounds_to_clean=2):
     monkeypatch.setattr(
-        agents, "_structured", build_fake_structured(
-            problem_is_real=problem_is_real, stress_rounds_to_clean=stress_rounds_to_clean
-        )
+        agents,
+        "_structured",
+        build_fake_structured(problem_is_real=problem_is_real, stress_rounds_to_clean=stress_rounds_to_clean),
     )
     monkeypatch.setattr(agents, "gather_evidence", fake_evidence)
 
@@ -187,8 +201,15 @@ async def test_happy_path_with_one_refinement_round(db, monkeypatch):
     # The full journey is on the run's event timeline.
     events = await repo.events_after(run.id)
     agents_seen = {e.agent for e in events}
-    assert {"venture/validator", "venture/architect", "venture/red-team", "venture/refiner",
-            "venture/strategist", "venture/gate", "venture/system"} <= agents_seen
+    assert {
+        "venture/validator",
+        "venture/architect",
+        "venture/red-team",
+        "venture/refiner",
+        "venture/strategist",
+        "venture/gate",
+        "venture/system",
+    } <= agents_seen
 
 
 async def test_unreal_problem_is_rejected_before_solutioning(db, monkeypatch):
