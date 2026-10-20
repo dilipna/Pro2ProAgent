@@ -7,16 +7,21 @@
 
 import asyncio
 import hashlib
+import json
 import logging
+import secrets
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from html import escape
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from pydantic import ValidationError
 from sse_starlette.sse import EventSourceResponse
 
 from .. import runner
+from ..briefs import ArtifactDecision, ProblemBrief, artifact_digest
 from ..config import get_settings
 from ..db import repository as repo
 from ..db.engine import dispose_engine, init_db
@@ -73,11 +78,13 @@ app.add_middleware(
 
 
 async def require_operator(authorization: str | None = Header(default=None)) -> None:
-    """Bearer check for mutating endpoints. Unset API_TOKEN = open (local dev)."""
+    """Deny missing credentials unless local bypass is explicitly enabled."""
     settings = get_settings()
     if settings.api_token is None:
-        return
-    if authorization != f"Bearer {settings.api_token}":
+        if settings.environment == "development" and settings.allow_local_operator_bypass:
+            return
+        raise HTTPException(status_code=503, detail="Operator access is not configured")
+    if not secrets.compare_digest(authorization or "", f"Bearer {settings.api_token}"):
         raise HTTPException(status_code=401, detail="Invalid or missing bearer token")
 
 
@@ -214,7 +221,11 @@ def _client_id(request: Request) -> str:
     X-Forwarded-For behind a proxy (Render terminates TLS in front of us),
     the socket peer otherwise. Hashed so raw addresses never hit the DB."""
     forwarded = request.headers.get("x-forwarded-for")
-    raw = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "unknown")
+    raw = (
+        forwarded.split(",")[0].strip()
+        if forwarded
+        else (request.client.host if request.client else "unknown")
+    )
     return hashlib.sha256(f"p2pops-search:{raw}".encode()).hexdigest()[:32]
 
 
@@ -305,6 +316,120 @@ async def public_search(payload: SearchCreate, request: Request):
     )
 
 
+# --- Explicit problem-brief handoff (no model or email on import/review) ---
+
+
+@app.get("/api/v1/workspace/config")
+async def workspace_config():
+    settings = get_settings()
+    return {
+        "operator_configured": bool(settings.api_token),
+        "model_configured": bool(settings.active_api_key),
+        "note": "Configuration is not availability. Import and approval require no model.",
+    }
+
+
+@app.post("/api/v1/briefs/import", dependencies=[Depends(require_operator)])
+async def import_problem_brief(request: Request):
+    raw = bytearray()
+    async for chunk in request.stream():
+        raw.extend(chunk)
+        if len(raw) > 64000:
+            raise HTTPException(status_code=413, detail="Keep the brief below 64 KB")
+    try:
+        brief = ProblemBrief.model_validate_json(bytes(raw))
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors(include_input=False, include_context=False)) from exc
+    run, idea, review, created = await repo.import_brief(brief)
+    if created:
+        await repo.add_event(
+            run.id,
+            "handoff",
+            "review_requested",
+            "Imported evidence snapshot; awaiting human scope review. No model called.",
+        )
+    return {
+        "run_id": run.id,
+        "idea_id": idea.id,
+        "created": created,
+        "snapshot_sha256": review.snapshot_sha256,
+        "status": run.status,
+    }
+
+
+@app.get("/api/v1/briefs/{run_id}", dependencies=[Depends(require_operator)])
+async def inspect_brief_run(run_id: str):
+    run = await repo.get_run(run_id)
+    if run is None or run.source != "brief":
+        raise HTTPException(status_code=404)
+    reviews = [r for r in await repo.all_pending_reviews() if r.run_id == run_id]
+    ideas = [
+        {
+            "id": i.id,
+            "status": i.status,
+            "brief": json.loads(i.problem_brief),
+            "approved_snapshot": await repo.approved_snapshot(i.id) if i.status == "approved" else None,
+        }
+        for i in run.ideas
+    ]
+    opportunities = await repo.opportunities_for_run(run_id)
+    builds = [await repo.get_build_for_opportunity(o.id) for o in opportunities]
+    return {
+        "builds": [
+            {"id": b.id, "status": b.status, "acceptance": json.loads(b.acceptance) if b.acceptance else None}
+            for b in builds
+            if b
+        ],
+        "run_id": run.id,
+        "status": run.status,
+        "ideas": ideas,
+        "pending": [
+            {"token": r.id, "snapshot_sha256": r.snapshot_sha256, "snapshot": json.loads(r.snapshot)}
+            for r in reviews
+        ],
+        "events": [{"agent": e.agent, "type": e.event_type, "message": e.message} for e in run.events],
+    }
+
+
+@app.post("/api/v1/briefs/{run_id}/execute", dependencies=[Depends(require_operator)], status_code=202)
+async def execute_approved_brief(run_id: str):
+    if not get_settings().active_api_key:
+        raise HTTPException(
+            status_code=503, detail="No model configured; approved brief remains ready to build"
+        )
+    if not await repo.claim_brief_execution(run_id):
+        raise HTTPException(status_code=409, detail="Run is not ready to build or execution already claimed")
+    asyncio.create_task(runner.execute_brief_run(run_id))
+    return {"run_id": run_id, "status": "building"}
+
+
+@app.get("/api/v1/builds/{build_id}/artifact", dependencies=[Depends(require_operator)])
+async def inspect_generated_artifact(build_id: str):
+    build = await repo.get_build(build_id)
+    if build is None or not build.dossier:
+        raise HTTPException(status_code=404)
+    dossier = json.loads(build.dossier)
+    return {
+        "build_id": build.id,
+        "status": build.status,
+        "artifact_sha256": artifact_digest(dossier),
+        "files": dossier.get("scaffold_files", []),
+        "approved_snapshot": dossier.get("approved_snapshot"),
+        "acceptance": json.loads(build.acceptance) if build.acceptance else None,
+        "note": "Model review is not a functional test. Test the artifact against every approved criterion.",
+    }
+
+
+@app.post("/api/v1/builds/{build_id}/accept", dependencies=[Depends(require_operator)])
+async def record_generated_artifact_decision(build_id: str, decision: ArtifactDecision):
+    if not await repo.record_artifact_decision(build_id, decision):
+        raise HTTPException(
+            status_code=409,
+            detail="Artifact changed, required checks are missing, or a decision already exists",
+        )
+    return {"build_id": build_id, "decision": decision.decision, "published": False}
+
+
 # --- Console approval queue -------------------------------------------------------
 
 
@@ -324,6 +449,8 @@ async def pending_reviews():
             created_at=r.created_at,
             expires_at=r.expires_at,
             idea=IdeaOut.model_validate(r.idea),
+            snapshot=json.loads(r.snapshot) if r.snapshot else None,
+            snapshot_sha256=r.snapshot_sha256,
         )
         for r in reviews
     ]
@@ -338,7 +465,9 @@ async def decide_review(token: str, payload: ReviewDecisionIn):
     """JSON twin of the emailed /r/{token}/{decision} links, for the
     in-console approval queue. Same single-use token semantics."""
     normalized = "approved" if payload.decision == "approve" else "rejected"
-    review = await repo.record_decision(token, normalized)
+    if normalized == "approved" and payload.snapshot_sha256 is None:
+        raise HTTPException(status_code=409, detail="Inspect the current snapshot before approving")
+    review = await repo.record_decision(token, normalized, payload.snapshot_sha256)
     if review is None:
         raise HTTPException(status_code=410, detail="Review token invalid, already used, or expired")
     resumed = await runner.maybe_resume_after_decision(review.run_id)
@@ -391,34 +520,70 @@ display:grid;place-items:center;min-height:100vh;padding:24px">
 
 
 @app.get("/r/{token}/{decision}", response_class=HTMLResponse)
-async def review_action(token: str, decision: str):
+async def review_action(token: str, decision: str, request: Request):
+    """Read-only preview. Email scanners and prefetchers cannot approve work."""
     if decision not in ("approve", "reject"):
         raise HTTPException(status_code=404)
+    review = await repo.get_review(token)
+    if (
+        review is None
+        or review.decision != "pending"
+        or review.expires_at.replace(tzinfo=UTC) <= datetime.now(UTC)
+    ):
+        raise HTTPException(status_code=410, detail="Review is unavailable or expired")
+    idea = await repo.get_idea(review.idea_id)
+    nonce = secrets.token_urlsafe(32)
+    body = f"""{escape(idea.title if idea else "Idea")}<br>
+    <pre style="text-align:left;white-space:pre-wrap;overflow-wrap:anywhere">{escape(review.snapshot or "No bound snapshot; reject or request a new review.")}</pre>
+    Opening this page has not recorded a decision.
+    <form method="post" action="/r/{escape(token)}/{decision}">
+    <input type="hidden" name="confirmation" value="{nonce}">
+    <input type="hidden" name="snapshot_sha256" value="{escape(review.snapshot_sha256 or "")}">
+    <button type="submit" style="margin-top:24px;padding:12px 20px">Confirm {decision}</button></form>"""
+    response = HTMLResponse(_review_page("Review your decision", body))
+    response.set_cookie(
+        "review_confirmation",
+        nonce,
+        httponly=True,
+        samesite="strict",
+        secure=request.url.scheme == "https",
+        max_age=600,
+        path=f"/r/{token}/",
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
 
-    normalized = "approved" if decision == "approve" else "rejected"
-    review = await repo.record_decision(token, normalized)
+
+@app.post("/r/{token}/{decision}", response_class=HTMLResponse)
+async def confirm_review_action(token: str, decision: str, request: Request):
+    from urllib.parse import parse_qs
+
+    if decision not in ("approve", "reject"):
+        raise HTTPException(status_code=404)
+    raw = await request.body()
+    if len(raw) > 1024:
+        raise HTTPException(status_code=413)
+    confirmation = parse_qs(raw.decode()).get("confirmation", [""])[0]
+    cookie = request.cookies.get("review_confirmation", "")
+    if not cookie or not secrets.compare_digest(confirmation, cookie):
+        raise HTTPException(status_code=403, detail="Open the review page and confirm deliberately")
+    sha = parse_qs(raw.decode()).get("snapshot_sha256", [""])[0]
+    if decision == "approve" and not sha:
+        raise HTTPException(status_code=409, detail="A bound snapshot is required")
+    review = await repo.record_decision(token, "approved" if decision == "approve" else "rejected", sha)
     if review is None:
-        return HTMLResponse(
-            _review_page(
-                "This link is no longer valid",
-                "It was already used or has expired. Nothing was changed.",
-                accent="#948a8e",
-            ),
-            status_code=410,
+        raise HTTPException(status_code=410, detail="Review is unavailable or expired")
+    await runner.maybe_resume_after_decision(review.run_id)
+    response = HTMLResponse(
+        _review_page(
+            "Decision recorded", "Your decision is recorded. Return to the console to inspect the next stage."
         )
-
-    resumed = await runner.maybe_resume_after_decision(review.run_id)
-    heading = (
-        "Approved — the venture pipeline takes it from here"
-        if normalized == "approved"
-        else "Rejected — noted"
     )
-    body = (
-        "Your decision is recorded. All reviews are in, so the pipeline resumes automatically."
-        if resumed
-        else "Your decision is recorded. The run resumes once the remaining ideas are decided."
-    )
-    return HTMLResponse(_review_page(heading, body))
+    response.delete_cookie("review_confirmation", path=f"/r/{token}/")
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
 
 
 def main() -> None:

@@ -48,8 +48,15 @@ def get_engine() -> AsyncEngine:
 # gets more complicated than additive nullable columns.
 _ADDITIVE_COLUMNS: dict[str, list[tuple[str, str]]] = {
     "runs": [("source", "VARCHAR(20) DEFAULT 'operator'"), ("keyword", "TEXT")],
-    "ideas": [("ptp_number", "INTEGER"), ("xploremore_problem_id", "INTEGER"), ("provenance", "TEXT")],
-    "builds": [("deploy_url", "TEXT")],
+    "ideas": [
+        ("ptp_number", "INTEGER"),
+        ("xploremore_problem_id", "INTEGER"),
+        ("provenance", "TEXT"),
+        ("problem_brief", "TEXT"),
+        ("brief_sha256", "VARCHAR(64)"),
+    ],
+    "reviews": [("snapshot", "TEXT"), ("snapshot_sha256", "VARCHAR(64)")],
+    "builds": [("deploy_url", "TEXT"), ("acceptance", "TEXT")],
 }
 
 
@@ -72,6 +79,11 @@ async def init_db() -> None:
         if engine.url.get_backend_name().startswith("sqlite"):
             await conn.run_sync(_apply_additive_columns)
         await conn.run_sync(Base.metadata.create_all)
+        from sqlalchemy import text
+
+        await conn.execute(
+            text("CREATE UNIQUE INDEX IF NOT EXISTS uq_ideas_brief_sha256 ON ideas (brief_sha256)")
+        )
 
 
 @asynccontextmanager

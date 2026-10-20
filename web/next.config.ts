@@ -6,6 +6,8 @@ const nextConfig: NextConfig = {
   // stage ships without the full dependency tree. Local `pnpm dev`/`pnpm
   // start` behavior is unchanged.
   output: "standalone",
+  turbopack: { root: process.cwd() },
+  outputFileTracingRoot: process.cwd(),
 };
 
 export default nextConfig;

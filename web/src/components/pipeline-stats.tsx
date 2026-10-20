@@ -8,7 +8,7 @@ import { Reveal } from "./reveal";
 const FALLBACK_STATS = [
   { value: "12", label: "problems analyzed" },
   { value: "10", label: "shortlisted by the analyst" },
-  { value: "2", label: "guardrail-audited runs" },
+  { value: "2", label: "recorded runs with input checks" },
   { value: "8", label: "agents on the roster" },
 ];
 

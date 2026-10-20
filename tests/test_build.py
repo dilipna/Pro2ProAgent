@@ -169,7 +169,14 @@ async def test_clean_pass_first_round(db, monkeypatch):
 
     events = await repo.events_after(run.id)
     agents_seen = {e.agent for e in events}
-    assert {"build/pm", "build/architect", "build/engineer", "build/qa", "build/gate", "build/system"} <= agents_seen
+    assert {
+        "build/pm",
+        "build/architect",
+        "build/engineer",
+        "build/qa",
+        "build/gate",
+        "build/system",
+    } <= agents_seen
     # One event per component, not one summary event for the whole fan-out.
     engineer_events = [e for e in events if e.agent == "build/engineer"]
     assert len(engineer_events) == 2
@@ -205,7 +212,9 @@ async def test_exhausted_revision_yields_needs_revision(db, monkeypatch):
 async def test_unmatched_component_name_falls_back_to_revising_all(db, monkeypatch):
     # QA names a component that doesn't exist in the architecture -- must
     # not silently no-op; should redo every component instead.
-    run, build = await run_build(monkeypatch, qa_rounds_to_clean=2, critical_component="Nonexistent Component")
+    run, build = await run_build(
+        monkeypatch, qa_rounds_to_clean=2, critical_component="Nonexistent Component"
+    )
 
     b = await repo.get_build(build.id)
     assert b.status == "complete"

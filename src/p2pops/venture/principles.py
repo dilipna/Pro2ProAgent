@@ -99,10 +99,7 @@ PRINCIPLES: list[VenturePrinciple] = [
             "composable primitives that users assemble to fit their own workflow — "
             "flexibility becomes the moat."
         ),
-        when_applicable=(
-            "The pain is tool fragmentation and context-switching, not a missing "
-            "capability."
-        ),
+        when_applicable=("The pain is tool fragmentation and context-switching, not a missing capability."),
         failure_mode=(
             "Infinite flexibility with no opinionated starting templates — the "
             "blank-canvas problem kills activation."

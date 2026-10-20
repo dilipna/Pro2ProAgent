@@ -68,7 +68,9 @@ class BuildState(TypedDict, total=False):
     deploy_url: str | None
 
 
-async def _event(state: BuildState, agent: str, event_type: str, message: str, t0: float | None = None) -> None:
+async def _event(
+    state: BuildState, agent: str, event_type: str, message: str, t0: float | None = None
+) -> None:
     duration_ms = (time.monotonic() - t0) * 1000 if t0 is not None else None
     await repo.add_event(state["run_id"], agent, event_type, message, duration_ms=duration_ms)
 
@@ -87,7 +89,11 @@ async def pm_node(state: BuildState) -> dict:
     ctx = agents._build_context(dossier)
     plan = await agents.write_plan(ctx)
     await _event(
-        state, "build/pm", "stage_completed", f"{len(plan.features)} features · {len(plan.tech_stack)} stack choices", t0
+        state,
+        "build/pm",
+        "stage_completed",
+        f"{len(plan.features)} features · {len(plan.tech_stack)} stack choices",
+        t0,
     )
     return {"ctx": ctx, "plan": plan, "qa_reports": [], "gates": [], "round_index": 0}
 
@@ -244,7 +250,9 @@ async def revise_node(state: BuildState) -> dict:
             if unmatched
             else "QA verdict failed with no component-specific critical issue"
         )
-        await _event(state, "build/gate", "gate_failed", f"{reason} -- revising all components as a safe fallback")
+        await _event(
+            state, "build/gate", "gate_failed", f"{reason} -- revising all components as a safe fallback"
+        )
         to_revise = components
     else:
         to_revise = [c for c in components if c.name in flagged_names]
@@ -282,8 +290,18 @@ async def publish_node(state: BuildState) -> dict:
 
     settings = get_settings()
     ptp_number = state.get("ptp_number")
+    if state["dossier"].approved_snapshot:
+        await _event(
+            state,
+            "build/publish",
+            "stage_completed",
+            "publish withheld: generated artifact requires independent functional checks and a separate human acceptance",
+        )
+        return {}
     if not settings.vercel_token:
-        await _event(state, "build/publish", "stage_completed", "publish skipped: no deploy credentials configured")
+        await _event(
+            state, "build/publish", "stage_completed", "publish skipped: no deploy credentials configured"
+        )
         return {}
     if ptp_number is None:
         await _event(state, "build/publish", "stage_completed", "publish skipped: idea has no PTP number")
@@ -315,6 +333,7 @@ async def finish_node(state: BuildState) -> dict:
     dossier = BuildDossier(
         opportunity_id=state["opportunity_id"],
         idea_title=dossier_in.idea_title,
+        approved_snapshot=dossier_in.approved_snapshot,
         product_name=dossier_in.vision.product_name if dossier_in.vision else None,
         status=outcome,
         plan=state.get("plan"),

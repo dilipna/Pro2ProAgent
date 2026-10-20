@@ -58,6 +58,7 @@ jobs:
           cache-dependency-path: web/pnpm-lock.yaml
 
       - run: pnpm install --frozen-lockfile
+      - run: pnpm test
       - run: pnpm lint
       - name: Build (API unreachable — exercises the seeded-fallback contract)
         run: pnpm build

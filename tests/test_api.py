@@ -1,3 +1,5 @@
+import re
+
 import httpx
 import pytest
 
@@ -59,7 +61,11 @@ async def test_review_link_flow(client):
 
     page = await client.get(f"/r/{review.id}/approve")
     assert page.status_code == 200
-    assert "Approved" in page.text
+    assert "Review your decision" in page.text
+    assert (await repo.get_idea(idea.id)).status == "shortlisted"
+    nonce = re.search(r'name="confirmation" value="([^"]+)"', page.text).group(1)
+    confirmed = await client.post(f"/r/{review.id}/approve", data={"confirmation": nonce, "snapshot_sha256": review.snapshot_sha256})
+    assert confirmed.status_code == 200
 
     # Single use: second click is politely refused.
     again = await client.get(f"/r/{review.id}/approve")

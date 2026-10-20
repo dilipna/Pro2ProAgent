@@ -324,7 +324,7 @@ def get_client() -> XploreMoreClient | None:
 
 
 def availability() -> str:
-    """"ok", "not_configured" or "circuit_open" -- decided before the agent
+    """ "ok", "not_configured" or "circuit_open" -- decided before the agent
     is built, so an unusable XploreMore is never even offered as a tool."""
     if not get_settings().xploremore_api_url:
         return "not_configured"

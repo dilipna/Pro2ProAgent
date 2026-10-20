@@ -81,9 +81,7 @@ async def execute_run(run_id: str, topic: str) -> None:
     try:
         pipeline = await get_pipeline()
         with logfire.span("run.execute", run_id=run_id, topic=topic):
-            result = await pipeline.ainvoke(
-                {"run_id": run_id, "topic": topic}, _run_config(run_id)
-            )
+            result = await pipeline.ainvoke({"run_id": run_id, "topic": topic}, _run_config(run_id))
         if "__interrupt__" in result:
             logger.info("Run %s paused at the human gate", run_id)
     except Exception as exc:
@@ -115,6 +113,7 @@ async def execute_venture(run_id: str, idea: Idea) -> str:
                     "title": idea.title,
                     "description": idea.description,
                     "reasoning": idea.reasoning or "",
+                    "approved_snapshot": await repo.approved_snapshot(idea.id),
                 }
             )
     except Exception as exc:
@@ -177,9 +176,7 @@ async def start_build(opportunity_id: str) -> Build:
     dossier = _build_ready_dossier(opportunity)
     ptp_number = await _ptp_for_opportunity(opportunity)
     build = await repo.create_build(opportunity.run_id, opportunity_id)
-    asyncio.create_task(
-        _run_build_graph(opportunity.run_id, build.id, opportunity_id, dossier, ptp_number)
-    )
+    asyncio.create_task(_run_build_graph(opportunity.run_id, build.id, opportunity_id, dossier, ptp_number))
     return build
 
 
@@ -242,8 +239,45 @@ async def resume_run(run_id: str) -> None:
 
 async def maybe_resume_after_decision(run_id: str) -> bool:
     """Called after each recorded decision; resumes once none are pending."""
-    pending = await repo.pending_reviews(run_id)
-    if pending:
+    if not await repo.claim_resume(run_id):
         return False
-    asyncio.create_task(resume_run(run_id))
+    run = await repo.get_run(run_id)
+    if run is not None and run.source == "brief":
+        decisions = await repo.decisions_for_run(run_id)
+        status = "ready_to_build" if "approved" in decisions.values() else "declined"
+        await repo.set_run_status(run_id, status)
+        await repo.add_event(
+            run_id, "human-gate", "review_decided", f"{status}: exact snapshot reviewed; no model called"
+        )
+    else:
+        asyncio.create_task(resume_run(run_id))
     return True
+
+
+async def execute_brief_run(run_id: str) -> None:
+    """Explicitly started after approval. One claimed execution, visible failures."""
+    run = await repo.get_run(run_id)
+    if run is None or run.source != "brief" or run.status != "building":
+        return
+    try:
+        outcome = "completed"
+        for idea in run.ideas:
+            if idea.status != "approved":
+                continue
+            if await repo.approved_snapshot(idea.id) is None:
+                raise ValueError("An approved snapshot is required")
+            opportunity_id = await execute_venture(run_id, idea)
+            opportunity = await repo.get_opportunity(opportunity_id)
+            if opportunity is None or opportunity.status == "failed":
+                raise ValueError("Venture analysis failed; no build accepted")
+            if opportunity.status == "complete":
+                build = await execute_build(opportunity_id)
+                if build.status == "failed":
+                    raise ValueError("Generation failed; no artifact accepted")
+                outcome = "awaiting_acceptance" if build.status == "complete" else "needs_revision"
+            else:
+                outcome = opportunity.status
+        await repo.set_run_status(run_id, outcome)
+    except Exception as exc:
+        await repo.set_run_status(run_id, "failed", str(exc))
+        await repo.add_event(run_id, "handoff", "error", str(exc))

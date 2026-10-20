@@ -20,6 +20,8 @@ def make_idea(status: str = "shortlisted", title: str = "Test problem", score: i
 async def db(tmp_path, monkeypatch):
     """Isolated database in a temp data dir for each test."""
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("ALLOW_LOCAL_OPERATOR_BYPASS", "true")
+    monkeypatch.setenv("ENVIRONMENT", "development")
     get_settings.cache_clear()
     await dispose_engine()
     await init_db()

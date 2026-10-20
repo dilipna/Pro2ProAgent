@@ -36,3 +36,7 @@ node_modules/
 web/.next/
 web/out/
 *.tsbuildinfo
+
+# Versioned source fixtures and browser contract
+!web/src/data/
+!web/src/data/*.json

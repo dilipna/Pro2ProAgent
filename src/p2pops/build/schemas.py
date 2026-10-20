@@ -88,7 +88,9 @@ class ArchitectureSpec(BaseModel):
         description="The exact object shapes the app stores (e.g. localStorage keys and their "
         "JSON shapes), written as a compact sketch the engineers copy from"
     )
-    api_surface: list[str] = Field(default_factory=list, description="Element ids / function contracts, one per line")
+    api_surface: list[str] = Field(
+        default_factory=list, description="Element ids / function contracts, one per line"
+    )
     rationale: str = Field(description="One line: why this shape fits the plan")
 
 
@@ -146,6 +148,7 @@ class BuildDossier(BaseModel):
 
     opportunity_id: str
     idea_title: str
+    approved_snapshot: dict | None = None
     product_name: str | None = None
     status: str  # scaffolding | complete | needs_revision | failed
     plan: BuildPlan | None = None
