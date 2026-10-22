@@ -18,7 +18,7 @@ The objective is a coherent evidence-to-product system with demonstrable boundar
 | 10. DPO feedback | Defer. | No legitimate, representative preference dataset or validated training/evaluation split exists. Do not turn operator approval into a model training claim. |
 | 11. Cost kill-switch | Strong fit; evaluate after recovery. | Existing estimated spend admission is not an atomic per-call reservation. Unknown prices must not be presented as free calls. No live paid evaluation is authorized. |
 | 12. Shadow comparator | Offline comparison is the appropriate initial form. | No traffic mirroring or extra model spending. Recorded comparisons must distinguish orchestration fixtures from model quality. |
-| 13. Computer-use fallback | Exclude from autonomous external actions here. | Browser-based artifact validation is a distinct useful capability; it must not silently bypass a failing external API or human approval. |
+| 13. Computer-use fallback | Exclude from autonomous external actions here; add independent artifact browser review. | The optional local reviewer now captures responsive screenshots and supplied behavior scenarios, blocks external requests, and tests rejection of runtime/network failures. The handcrafted reference is not a model benchmark. This does not bypass a failing API or human artifact acceptance. |
 | 14. PII proxy | Conditional future fit. | Current public-source brief workflow does not establish private-data readiness. Do not claim complete PII protection based on a regex redactor. |
 | 15. Architecture teardown | Core release documentation. | Publish source-linked architecture, crash campaign, limitations and observed hosting state after release approval. No fabricated production scale, cost savings or benchmark results. |
 

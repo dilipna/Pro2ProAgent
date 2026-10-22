@@ -33,7 +33,7 @@ jobs:
         run: uv sync --all-groups
 
       - name: Ruff lint
-        run: uv run ruff check src tests
+        run: uv run ruff check src tests tools/prototype-review/export_artifact.py
 
       - name: pytest
         run: uv run pytest -q --basetemp=test-evidence
@@ -71,6 +71,34 @@ jobs:
       - run: pnpm lint
       - name: Build (API unreachable — exercises the seeded-fallback contract)
         run: pnpm build
+
+  prototype-review:
+    name: Prototype browser evidence (offline)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/prototype-review
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: tools/prototype-review/package-lock.json
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - name: Check reviewer rejection behavior
+        run: npm test
+      - name: Review handcrafted design reference (not model benchmark)
+        run: node review.mjs ../../examples/decision-desk ../../test-evidence/prototype-browser ../../examples/decision-desk/scenarios.json
+      - name: Preserve screenshots and behavior report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: protopro-prototype-browser-${{ github.sha }}
+          path: test-evidence/prototype-browser/**
+          if-no-files-found: warn
+          retention-days: 7
 
   docker:
     name: Docker build validation

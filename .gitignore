@@ -43,3 +43,5 @@ web/out/
 
 # Local/CI isolated crash-campaign databases
 test-evidence/
+test-evidence-design/
+test-evidence-design-final/
