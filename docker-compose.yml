@@ -40,6 +40,7 @@ services:
       # Server-side only: the Next.js server reaches the API over the
       # compose network; the browser never calls the API directly.
       PROTOPRO_API_URL: http://api:8000
+      PROTOPRO_BACKEND_MODE: connected
     ports:
       - "${WEB_PORT:-3000}:3000"
     depends_on:

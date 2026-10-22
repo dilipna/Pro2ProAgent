@@ -1,3 +1,4 @@
+import { backendConnected, browserModeResponse } from "@/lib/backend-mode";
 import { API_BASE } from "@/lib/api";
 
 /**
@@ -6,6 +7,7 @@ import { API_BASE } from "@/lib/api";
  * ever widening. The upstream body is streamed, not buffered.
  */
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  if (!backendConnected()) return browserModeResponse();
   const { id } = await params;
   try {
     const upstream = await fetch(`${API_BASE}/api/v1/runs/${encodeURIComponent(id)}/stream`, {

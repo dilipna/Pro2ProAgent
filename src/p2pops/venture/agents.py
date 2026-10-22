@@ -142,9 +142,7 @@ async def gather_evidence(title: str, description: str) -> EvidenceBundle:
     for story in linked:
         text = await asyncio.to_thread(fetch_article_text, story.url, 2500)
         if not text.startswith("(could not fetch"):
-            items.append(
-                EvidenceItem(source="article", title=story.title, url=story.url, detail=text)
-            )
+            items.append(EvidenceItem(source="article", title=story.title, url=story.url, detail=text))
 
     return EvidenceBundle(query=query, items=items)
 
@@ -185,8 +183,7 @@ async def validate_problem(ctx: str) -> ProblemValidation:
     honestly reported; confidence reflects evidence quality, not enthusiasm."""
     return await _structured(
         ProblemValidation,
-        ctx
-        + "\nYou are the Problem Validator for a venture studio. Determine whether "
+        ctx + "\nYou are the Problem Validator for a venture studio. Determine whether "
         "this problem is real, recurring, and important enough to build against. "
         "Base every claim on the evidence items (cite E-numbers). If evidence is "
         "thin or contradictory, say so and lower confidence — a false 'real' "
@@ -201,8 +198,7 @@ async def analyze_segments(ctx: str) -> SegmentAnalysis:
     chosen by pain intensity x reachability, not size alone."""
     return await _structured(
         SegmentAnalysis,
-        ctx
-        + "\nYou are the Segment Ethnographer. Identify the distinct user segments "
+        ctx + "\nYou are the Segment Ethnographer. Identify the distinct user segments "
         "who feel this pain, what outcome each is actually buying, and how they "
         "cope today. Pick the primary segment to build for first: the one where "
         "pain intensity and reachability multiply best. Ground segment claims in "
@@ -216,8 +212,7 @@ async def assess_demand(ctx: str) -> DemandAssessment:
     market-size reasoning is order-of-magnitude honest, never invented TAM."""
     return await _structured(
         DemandAssessment,
-        ctx
-        + "\nYou are the Demand Analyst. Measure urgency (need it now?), frequency "
+        ctx + "\nYou are the Demand Analyst. Measure urgency (need it now?), frequency "
         "(how often the pain bites), and willingness to pay (budget signals, "
         "existing spend on workarounds). List concrete demand signals tied to "
         "evidence items. For market size, give order-of-magnitude reasoning about "
@@ -231,8 +226,7 @@ async def scout_competitors(ctx: str) -> CompetitorLandscape:
     gap is specific enough to aim a wedge at; saturation is justified."""
     return await _structured(
         CompetitorLandscape,
-        ctx
-        + "\nYou are the Competitor Scout. Map existing solutions to this problem — "
+        ctx + "\nYou are the Competitor Scout. Map existing solutions to this problem — "
         "commercial products, open source, and the do-nothing workaround — with "
         "each one's concrete shortcoming (cite evidence where it shows users "
         "complaining about them). Then name the sharpest unserved gap: the wedge "

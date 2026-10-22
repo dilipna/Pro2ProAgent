@@ -152,7 +152,9 @@ async def run_trial(arm: str, topic: str) -> dict[str, Any]:
             )
             if analyzed.status != "duplicate" and row["guardrail_pass"]:
                 memory.remember(
-                    uuid.uuid4().hex, f"{analyzed.title}\n{analyzed.description}", problem_id=analyzed.problem_id
+                    uuid.uuid4().hex,
+                    f"{analyzed.title}\n{analyzed.description}",
+                    problem_id=analyzed.problem_id,
                 )
             ideas.append(row)
         trial["ideas"] = ideas
@@ -217,7 +219,9 @@ def wilson(successes: int, n: int, z: float = 1.96) -> tuple[float, float]:
     return (max(0.0, centre - half), min(1.0, centre + half))
 
 
-def cluster_bootstrap(trials: list[dict], numer, denom, seed: int = BOOTSTRAP_SEED) -> tuple[float, float, float]:
+def cluster_bootstrap(
+    trials: list[dict], numer, denom, seed: int = BOOTSTRAP_SEED
+) -> tuple[float, float, float]:
     """Ratio sum(numer)/sum(denom) with a 95% percentile CI, resampling whole
     trials: ideas from one research turn are not independent."""
     pairs = [(numer(t), denom(t)) for t in trials]
@@ -301,7 +305,9 @@ def build_report(trials: list[dict], source_name: str) -> str:
     row(
         "Guardrail pass rate",
         lambda ts: _fmt(
-            *cluster_bootstrap(ts, lambda t: _count(t, lambda i: i.get("guardrail_pass")), lambda t: len(t["ideas"])),
+            *cluster_bootstrap(
+                ts, lambda t: _count(t, lambda i: i.get("guardrail_pass")), lambda t: len(t["ideas"])
+            ),
             pct=True,
         ),
     )
@@ -325,9 +331,14 @@ def build_report(trials: list[dict], source_name: str) -> str:
             pct=True,
         ),
     )
-    row("Shortlisted per trial", lambda ts: _fmt(
-        *cluster_bootstrap(ts, lambda t: _count(t, lambda i: i.get("status") == "shortlisted"), lambda t: 1)
-    ))
+    row(
+        "Shortlisted per trial",
+        lambda ts: _fmt(
+            *cluster_bootstrap(
+                ts, lambda t: _count(t, lambda i: i.get("status") == "shortlisted"), lambda t: 1
+            )
+        ),
+    )
     row(
         "Analyst conviction, mean of scored ideas (0-100)",
         lambda ts: _fmt(
@@ -342,22 +353,32 @@ def build_report(trials: list[dict], source_name: str) -> str:
     row(
         "Ideas carrying XploreMore provenance",
         lambda ts: _fmt(
-            *cluster_bootstrap(ts, lambda t: _count(t, lambda i: i.get("problem_id") is not None), lambda t: len(t["ideas"])),
+            *cluster_bootstrap(
+                ts, lambda t: _count(t, lambda i: i.get("problem_id") is not None), lambda t: len(t["ideas"])
+            ),
             pct=True,
         ),
     )
-    row("Tokens per trial (research + analyst)", lambda ts: _fmt(
-        *cluster_bootstrap(ts, _tokens, lambda t: 1), digits=0
-    ))
+    row(
+        "Tokens per trial (research + analyst)",
+        lambda ts: _fmt(*cluster_bootstrap(ts, _tokens, lambda t: 1), digits=0),
+    )
     row(
         "Tokens per shortlisted idea",
         lambda ts: _fmt(
-            *cluster_bootstrap(ts, _tokens, lambda t: _count(t, lambda i: i.get("status") == "shortlisted")), digits=0
+            *cluster_bootstrap(ts, _tokens, lambda t: _count(t, lambda i: i.get("status") == "shortlisted")),
+            digits=0,
         ),
     )
-    row("Tool calls per trial", lambda ts: _fmt(*cluster_bootstrap(ts, lambda t: len(t["tool_calls"]), lambda t: 1)))
+    row(
+        "Tool calls per trial",
+        lambda ts: _fmt(*cluster_bootstrap(ts, lambda t: len(t["tool_calls"]), lambda t: 1)),
+    )
     row("Rate-limit retries (total)", lambda ts: str(sum(t.get("rate_limit_retries", 0) for t in ts)))
-    row("Wall time per trial, s", lambda ts: _fmt(*cluster_bootstrap(ts, lambda t: t["total_s"], lambda t: 1), digits=0))
+    row(
+        "Wall time per trial, s",
+        lambda ts: _fmt(*cluster_bootstrap(ts, lambda t: t["total_s"], lambda t: 1), digits=0),
+    )
     row("Approval by a human", lambda ts: "not measured")
     row("Human rating of problem quality", lambda ts: "not measured")
 

@@ -125,7 +125,9 @@ def test_consolidate_components_merges_browser_language_groups():
     components = [
         ComponentSpec(name="Page", responsibility="markup", tech="HTML page"),
         ComponentSpec(name="Calculator", responsibility="score", tech="JavaScript logic"),
-        ComponentSpec(name="Tracker", responsibility="history", tech="JavaScript logic", key_interfaces=["track()"]),
+        ComponentSpec(
+            name="Tracker", responsibility="history", tech="JavaScript logic", key_interfaces=["track()"]
+        ),
         ComponentSpec(name="Style", responsibility="design", tech="CSS stylesheet"),
         ComponentSpec(name="Backend", responsibility="api", tech="FastAPI service"),
     ]
@@ -167,7 +169,9 @@ def test_undefined_dom_ids_audit():
         content="document.getElementById('score'); document.querySelector('#missing-panel'); getElementById(\"name-field\")",
     )
     assert undefined_dom_ids([html, js]) == ["missing-panel"]
-    js_ok = ScaffoldFile(component="L", path="app.js", language="javascript", content="getElementById('score')")
+    js_ok = ScaffoldFile(
+        component="L", path="app.js", language="javascript", content="getElementById('score')"
+    )
     assert undefined_dom_ids([html, js_ok]) == []
 
 
@@ -342,7 +346,7 @@ async def test_pending_reviews_and_json_decision_flow(client):
     assert [p["token"] for p in pending] == [review.id]
     assert pending[0]["idea"]["id"] == idea.id
 
-    decided = await client.post(f"/api/v1/reviews/{review.id}", json={"decision": "approve"})
+    decided = await client.post(f"/api/v1/reviews/{review.id}", json={"decision": "approve", "snapshot_sha256": review.snapshot_sha256})
     assert decided.status_code == 200
     assert decided.json() == {"decision": "approved", "run_resumed": True}
 
@@ -357,9 +361,7 @@ async def test_pending_reviews_requires_operator_token_when_configured(client, m
     get_settings.cache_clear()
     try:
         assert (await client.get("/api/v1/reviews/pending")).status_code == 401
-        ok = await client.get(
-            "/api/v1/reviews/pending", headers={"Authorization": "Bearer secret123"}
-        )
+        ok = await client.get("/api/v1/reviews/pending", headers={"Authorization": "Bearer secret123"})
         assert ok.status_code == 200
     finally:
         get_settings.cache_clear()

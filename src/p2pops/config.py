@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     environment: str = "development"
+    allow_local_operator_bypass: bool = False
 
     # LLM access -- swappable provider, routed through LiteLLM. This is the
     # setting that demonstrates LiteLLM's actual value: switching provider

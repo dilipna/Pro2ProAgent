@@ -89,6 +89,8 @@ class Idea(Base):
     # platforms, evidence URLs). Null for HN/web-discovered ideas.
     xploremore_problem_id: Mapped[int | None] = mapped_column(Integer, index=True, default=None)
     provenance: Mapped[str | None] = mapped_column(Text, default=None)
+    problem_brief: Mapped[str | None] = mapped_column(Text, default=None)
+    brief_sha256: Mapped[str | None] = mapped_column(String(64), unique=True, default=None)
 
     run: Mapped[Run | None] = relationship(back_populates="ideas")
     reviews: Mapped[list["Review"]] = relationship(back_populates="idea", lazy="selectin")
@@ -131,11 +133,31 @@ class Build(Base):
     # scaffolding | complete | needs_revision | failed
     status: Mapped[str] = mapped_column(String(20), default="scaffolding", index=True)
     dossier: Mapped[str | None] = mapped_column(Text, default=None)
+    acceptance: Mapped[str | None] = mapped_column(Text, default=None)
     # Public URL of the deployed product, set by the publish stage on a
     # successful Vercel deploy + smoke check. None = built but not published.
     deploy_url: Mapped[str | None] = mapped_column(Text, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+
+class ExecutionJob(Base):
+    """One durable, explicitly authorized imported-brief execution."""
+
+    __tablename__ = "execution_jobs"
+
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"), primary_key=True)
+    idea_id: Mapped[str] = mapped_column(ForeignKey("ideas.id"))
+    approval_sha256: Mapped[str] = mapped_column(String(64))
+    code_fingerprint: Mapped[str] = mapped_column(String(64))
+    opportunity_id: Mapped[str] = mapped_column(ForeignKey("opportunities.id"), unique=True)
+    build_id: Mapped[str | None] = mapped_column(ForeignKey("builds.id"), unique=True, default=None)
+    status: Mapped[str] = mapped_column(String(20), default="queued", index=True)
+    stage: Mapped[str] = mapped_column(String(20), default="venture")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str | None] = mapped_column(Text, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class SearchRequest(Base):
@@ -197,5 +219,7 @@ class Review(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    snapshot: Mapped[str | None] = mapped_column(Text, default=None)
+    snapshot_sha256: Mapped[str | None] = mapped_column(String(64), default=None)
 
     idea: Mapped[Idea] = relationship(back_populates="reviews")

@@ -61,9 +61,7 @@ def test_stochastic_generation_400_is_retryable_despite_status_code():
     400s, but they're the model's *sampling* going wrong, not a broken
     request -- unlike the 413 case, resampling on retry routinely fixes it,
     so these specific codes must override the generic "400 = give up" rule."""
-    tool_use = BadRequestError(
-        "Failed to call a function. code: tool_use_failed", status_code=400
-    )
+    tool_use = BadRequestError("Failed to call a function. code: tool_use_failed", status_code=400)
     schema_mismatch = BadRequestError(
         "does not validate with schema. code: json_validate_failed", status_code=400
     )

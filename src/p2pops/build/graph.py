@@ -38,6 +38,7 @@ from langgraph.graph import END, START, StateGraph
 from ..db import repository as repo
 from ..venture.schemas import OpportunityDossier
 from . import agents, scoring
+from .quality import audit_product_source
 from .schemas import (
     ArchitectureSpec,
     BuildDossier,
@@ -68,7 +69,9 @@ class BuildState(TypedDict, total=False):
     deploy_url: str | None
 
 
-async def _event(state: BuildState, agent: str, event_type: str, message: str, t0: float | None = None) -> None:
+async def _event(
+    state: BuildState, agent: str, event_type: str, message: str, t0: float | None = None
+) -> None:
     duration_ms = (time.monotonic() - t0) * 1000 if t0 is not None else None
     await repo.add_event(state["run_id"], agent, event_type, message, duration_ms=duration_ms)
 
@@ -87,7 +90,11 @@ async def pm_node(state: BuildState) -> dict:
     ctx = agents._build_context(dossier)
     plan = await agents.write_plan(ctx)
     await _event(
-        state, "build/pm", "stage_completed", f"{len(plan.features)} features · {len(plan.tech_stack)} stack choices", t0
+        state,
+        "build/pm",
+        "stage_completed",
+        f"{len(plan.features)} features · {len(plan.tech_stack)} stack choices",
+        t0,
     )
     return {"ctx": ctx, "plan": plan, "qa_reports": [], "gates": [], "round_index": 0}
 
@@ -183,6 +190,9 @@ async def qa_node(state: BuildState) -> dict:
     report = await agents.review_scaffold(
         state["ctx"], state["plan"], state["architecture"], state["scaffold_files"], reference_audit=audit
     )
+    # Independent of the model verdict. These are source checks, not browser
+    # execution or an aesthetic score; the findings remain in the dossier.
+    report.issues.extend(audit_product_source(state["architecture"], state["scaffold_files"]))
     round_index = state["round_index"] + 1
     gate = scoring.qa_gate(report, round_index)
     await _event(
@@ -229,8 +239,8 @@ async def revise_node(state: BuildState) -> dict:
     report = state["qa_reports"][-1]
     components = state["architecture"].components
     known_names = {c.name for c in components}
-    critical = report.critical_issues
-    resolved = {issue.component: _match_component(issue.component, known_names) for issue in critical}
+    blocking = [i for i in report.issues if i.severity in {"critical", "major"}]
+    resolved = {issue.component: _match_component(issue.component, known_names) for issue in blocking}
     flagged_names = {name for name in resolved.values() if name is not None}
     unmatched = {orig for orig, name in resolved.items() if name is None}
 
@@ -242,15 +252,23 @@ async def revise_node(state: BuildState) -> dict:
         reason = (
             f"QA named unknown component(s) {sorted(unmatched)}"
             if unmatched
-            else "QA verdict failed with no component-specific critical issue"
+            else "QA verdict failed with no component-specific blocking issue"
         )
-        await _event(state, "build/gate", "gate_failed", f"{reason} -- revising all components as a safe fallback")
+        await _event(
+            state, "build/gate", "gate_failed", f"{reason} -- revising all components as a safe fallback"
+        )
         to_revise = components
     else:
         to_revise = [c for c in components if c.name in flagged_names]
 
+    # HTML revisions change the interface the CSS and JS depend on; carry
+    # all three through the same bounded revision rather than leave stale hooks.
+    if any(state["targets"][c.name][1] == "html" for c in to_revise):
+        to_revise = [c for c in components if state["targets"][c.name][1] in {"html", "css", "javascript"}
+                     or c in to_revise]
+
     feedback_by_component: dict[str, list[str]] = {}
-    for issue in critical:
+    for issue in blocking:
         name = resolved.get(issue.component) or issue.component
         feedback_by_component.setdefault(name, []).append(f"{issue.issue} (fix: {issue.fix})")
     feedback: dict[str, str] = {k: " / ".join(v) for k, v in feedback_by_component.items()}
@@ -258,6 +276,8 @@ async def revise_node(state: BuildState) -> dict:
         # No component-specific critical issues -- give every revised
         # component the overall QA reasoning so the round carries signal.
         feedback = {c.name: report.reasoning for c in to_revise}
+    for component in to_revise:
+        feedback.setdefault(component.name, "Keep this file consistent with the revised markup, shared design contract and current sibling files. " + report.reasoning)
 
     revised_files = await _run_engineer(state, to_revise, feedback, existing_files=state["scaffold_files"])
     revised_by_name = {f.component: f for f in revised_files}
@@ -282,8 +302,18 @@ async def publish_node(state: BuildState) -> dict:
 
     settings = get_settings()
     ptp_number = state.get("ptp_number")
+    if state["dossier"].approved_snapshot:
+        await _event(
+            state,
+            "build/publish",
+            "stage_completed",
+            "publish withheld: generated artifact requires independent functional checks and a separate human acceptance",
+        )
+        return {}
     if not settings.vercel_token:
-        await _event(state, "build/publish", "stage_completed", "publish skipped: no deploy credentials configured")
+        await _event(
+            state, "build/publish", "stage_completed", "publish skipped: no deploy credentials configured"
+        )
         return {}
     if ptp_number is None:
         await _event(state, "build/publish", "stage_completed", "publish skipped: idea has no PTP number")
@@ -315,6 +345,7 @@ async def finish_node(state: BuildState) -> dict:
     dossier = BuildDossier(
         opportunity_id=state["opportunity_id"],
         idea_title=dossier_in.idea_title,
+        approved_snapshot=dossier_in.approved_snapshot,
         product_name=dossier_in.vision.product_name if dossier_in.vision else None,
         status=outcome,
         plan=state.get("plan"),
@@ -323,6 +354,12 @@ async def finish_node(state: BuildState) -> dict:
         qa_reports=state.get("qa_reports") or [],
         gates=state.get("gates") or [],
         deploy_url=state.get("deploy_url"),
+        verification_scope=(
+            "Product design contract and source review only; browser behavior, rendered appearance "
+            "and human artifact acceptance are not established by this graph."
+            if state.get("architecture") and state["architecture"].product_design
+            else "Legacy source review; no product-design contract or browser verification recorded."
+        ),
     )
     await repo.finish_build(state["build_id"], outcome, dossier.model_dump_json())
     await _event(state, "build/system", "stage_completed", f"build {outcome}: {dossier_in.idea_title[:80]}")
