@@ -1,0 +1,34 @@
+[
+  {"name":"validation, local decision, refresh and duplicate protection","width":390,"steps":[
+    {"action":"click","role":"button","name":"Approve locally"},
+    {"action":"expectText","role":"alert","text":"Add a short reason"},
+    {"action":"fill","label":"Decision note","value":"The example exports summary columns only; no payment details or external recipient."},
+    {"action":"click","role":"button","name":"Approve locally"},
+    {"action":"expectText","role":"status","text":"Approval recorded locally. No tool executed."},
+    {"action":"downloadJson","role":"button","name":"Export review log","expected":{"authorizes_execution":false,"illustrative":true,"reviews.length":1,"reviews.0.proposal_id":"REQ-001","reviews.0.decision":"approved"}},
+    {"action":"reload"},
+    {"action":"click","role":"button","name":"All proposals","exact":true},
+    {"action":"click","role":"button","name":"Export the invoice summary, approved"},
+    {"action":"expectText","role":"main","text":"Approved locally. Nothing executed."},
+    {"action":"expectCount","role":"button","name":"Approve locally","count":0}
+  ]},
+  {"name":"search recovery and deliberately empty workspace","width":1440,"steps":[
+    {"action":"fill","label":"Search proposals","value":"nothing-matches-this"},
+    {"action":"expectVisible","role":"heading","name":"No matching proposals."},
+    {"action":"click","role":"button","name":"Clear search","exact":true},
+    {"action":"expectVisible","role":"button","name":"Export the invoice summary, pending"},
+    {"action":"click","role":"button","name":"Start empty","exact":true},
+    {"action":"reload"},
+    {"action":"expectVisible","role":"heading","name":"A clear desk."},
+    {"action":"expectCount","role":"button","name":"Export the invoice summary","count":0},
+    {"action":"click","role":"button","name":"Load examples","exact":true},
+    {"action":"expectVisible","role":"button","name":"Export the invoice summary, pending"}
+  ]},
+  {"name":"decline keeps unsafe text inert and exports one decision","width":390,"steps":[
+    {"action":"click","role":"button","name":"Send the customer follow-up, pending"},
+    {"action":"fill","label":"Decision note","value":"<img src=x onerror=alert(1)> Recipient and message need a human check."},
+    {"action":"click","role":"button","name":"Decline proposal","exact":true},
+    {"action":"expectText","role":"main","text":"Declined locally. Nothing executed."},
+    {"action":"downloadJson","role":"button","name":"Export review log","expected":{"reviews.length":1,"reviews.0.proposal_id":"REQ-002","reviews.0.decision":"rejected","authorizes_execution":false}}
+  ]}
+]

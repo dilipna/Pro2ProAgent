@@ -89,7 +89,7 @@ async def design_architecture(ctx: str, plan: BuildPlan) -> ArchitectureSpec:
     """Success criteria: 3-6 components that together cover every P0
     feature; each names a concrete, keyword-matchable technology; the data
     model supports the features without over-normalizing for a scaffold."""
-    return await venture_agents._structured(
+    architecture = await venture_agents._structured(
         ArchitectureSpec,
         ctx
         + f"\nBUILD PLAN: {plan.model_dump_json()}"
@@ -108,6 +108,18 @@ async def design_architecture(ctx: str, plan: BuildPlan) -> ArchitectureSpec:
         "JSON shapes, and api_surface as the DOM element ids / JS function "
         "contracts the three files share — be precise, the engineers build "
         "against these.\n"
+        "PRODUCT DESIGN CONTRACT: populate product_design with a task-specific "
+        "primary_workflow, named layout regions, visual_direction with concrete hex "
+        "colors and type stacks, one useful signature_detail inside approved scope, "
+        "3-6 explicit states and responsive_rules. This is the shared design brief "
+        "for ALL THREE files, not a vague adjective in the CSS rationale. Start at "
+        "the user's main task; do not spend the first screen on marketing copy. "
+        "Choose a layout that fits the problem: an inspector for reviewing actions, "
+        "an editable ledger for budgets, an editor with live output for transforms. "
+        "No gratuitous KPI tiles, fabricated business metrics or invented features. "
+        "Use restrained color, a deliberate typographic hierarchy, consistent spacing, "
+        "a visible primary action and meaningful data density. Describe mobile reflow, "
+        "keyboard navigation and empty/error/completed states precisely.\n"
         "VISUAL IDENTITY (for the stylesheet component): derive a color "
         "palette, type pairing, and layout mood specifically from THIS "
         "product's name/one-liner/positioning above — never default to a "
@@ -121,7 +133,8 @@ async def design_architecture(ctx: str, plan: BuildPlan) -> ArchitectureSpec:
         "panels (summary stats where the product warrants them), and "
         "sensible empty-state text for every list/table. Include in "
         "data_model a `seedSampleData` note listing 5-8 realistic example "
-        "records the app pre-loads on first run so it never demos empty.\n"
+        "records the app can show in a clearly labeled Example mode; include a "
+        "Start empty action. Never mix examples into a user's saved real data.\n"
         "STRICT OUTPUT RULE: emit every property of the "
         "schema on every object — including 'key_interfaces' and "
         "'depends_on' (use [] when none) — never omit a key.",
@@ -131,7 +144,17 @@ async def design_architecture(ctx: str, plan: BuildPlan) -> ArchitectureSpec:
         # models spend hidden tokens against that budget too) — same story
         # as Engineer/QA, see ADR-0010.
         tier="default",
+        max_tokens=3072,
     )
+    # Old dossiers still deserialize without this field. Newly generated browser
+    # architectures must establish the contract before spending engineer calls.
+    from .scoring import scaffold_target
+
+    if architecture.product_design is None and any(
+        scaffold_target(c)[1] in {"html", "css", "javascript"} for c in architecture.components
+    ):
+        raise ValueError("New browser architecture is missing its product_design contract")
+    return architecture
 
 
 async def write_scaffold(
@@ -155,7 +178,7 @@ async def write_scaffold(
     )
     siblings_block = ""
     if sibling_files:
-        rendered = "\n".join(f"--- {f.path} (already written) ---\n{f.content[:5000]}" for f in sibling_files)
+        rendered = "\n".join(f"--- {f.path} (already written) ---\n{f.content}" for f in sibling_files)
         siblings_block = (
             f"\n\nFILES ALREADY WRITTEN FOR THIS APP — your file must work with these exactly "
             f"as they are (reference only element ids, classes, and functions that really exist "
@@ -190,12 +213,20 @@ async def write_scaffold(
         "simply.\n"
         "QUALITY BAR — this must look and feel like a real founder-grade "
         "MVP, not a demo page:\n"
+        "- Treat product_design as a shared implementation contract. Build its "
+        "primary workflow and named regions exactly. Its signature detail must "
+        "help complete the task, not just decorate a generic dashboard. Use "
+        "specific product copy, a useful first screen, and a restrained hierarchy.\n"
+        "- HTML: document title, lang, viewport meta, one h1 and main landmark; "
+        "native labeled controls, semantic buttons, status/alert feedback. Do not "
+        "use emoji as icons. Use consistent small inline SVG icons if useful.\n"
         "- HTML: a branded app shell (top bar with the product name and "
         "tagline, main area of cards/panels, summary-stat tiles where they "
         "make sense, meaningful empty-state text in every list/table).\n"
-        "- JS: on first load, if localStorage is empty, seed it with the "
-        "realistic sample records from the data model's seedSampleData "
-        "note so the app never opens blank; format numbers as currency/"
+        "- JS: show clearly labeled example records on first visit and offer "
+        "Start empty. Persist only deliberate user edits/decisions, never silently "
+        "reseed a deliberately empty workspace. Validate stored JSON and user "
+        "input; use textContent for user-supplied values. Format numbers as currency/"
         "percentages and dates in a human style everywhere they appear.\n"
         "- CSS: a complete small design system, not element defaults — "
         ":root custom properties for the palette and a spacing scale; a "
@@ -207,6 +238,12 @@ async def write_scaffold(
         "comfortable whitespace throughout. Follow the ARCHITECTURE "
         "`rationale` visual-identity direction precisely — a distinct look "
         "for this product, not a generic default.\n"
+        "- CSS: use fluid type with clamp(), minmax(0, 1fr) for shrinkable panels, "
+        "a deliberate content width, :focus-visible, @media mobile reflow and "
+        "prefers-reduced-motion when adding motion. Normal text contrast at least "
+        "4.5:1; important controls at least 44px high. Do not clip overflow to "
+        "conceal a broken layout. Empty, filtered-empty, invalid and success states "
+        "must look intentional and let the user recover.\n"
         "Every P0 feature this "
         "component is responsible for must "
         "actually work when the files are opened in a browser. Stay exactly "
@@ -252,8 +289,9 @@ async def review_scaffold(
     over anything the model believes about id existence."""
     # Near-full files: a truncated HTML page makes "JS references an id the
     # HTML doesn't define" findings unfalsifiable (observed live round 2).
-    # QA runs on the 30k-TPM default tier, which absorbs this comfortably.
-    files_block = "\n".join(f"--- {f.component} ({f.path}) ---\n{f.content[:9000]}" for f in files)
+    # Complete source is needed to assess cross-file contracts; no hidden
+    # truncation that makes the reviewer speculate about missing markup.
+    files_block = "\n".join(f"--- {f.component} ({f.path}) ---\n{f.content}" for f in files)
     audit_block = (
         "every DOM id referenced by the JS is defined in the HTML"
         if not reference_audit
@@ -265,8 +303,7 @@ async def review_scaffold(
         + f"\nBUILD PLAN: {plan.model_dump_json()}"
         + f"\nARCHITECTURE: {architecture.model_dump_json()}"
         + f"\n\nPRODUCT FILES — this is the app's COMPLETE file set; every file "
-        "named in the architecture appears above (long files truncated for "
-        f"review):\n{files_block}"
+        f"named in the architecture is supplied below when generated successfully:\n{files_block}"
         + f"\n\nDETERMINISTIC REFERENCE AUDIT (computed by code, authoritative): {audit_block}."
         + "\n\nYou are QA for a shipping product. Review these files against the "
         "build plan and architecture spec as a structured document review — "
@@ -288,7 +325,15 @@ async def review_scaffold(
         "speculation (older browsers, restricted localStorage, disabled JS) "
         "is never an issue at any severity — assume a modern evergreen "
         "browser. In `component`, use the EXACT component name from the "
-        "architecture, nothing appended.",
+        "architecture, nothing appended.\n"
+        "DESIGN REVIEW: compare markup, styling and interactions to product_design. "
+        "Major includes a generic shell that omits its task layout, missing core "
+        "empty/error/decision feedback, unreadable color choices, unlabeled controls, "
+        "or a desktop-only layout. Minor is optional decorative polish. Do not "
+        "invent screenshot observations: this is SOURCE REVIEW ONLY. Cite actual "
+        "selectors/markup or code behavior for findings. A critical OR major issue "
+        "or a needs_revision verdict blocks completion and consumes the same "
+        "bounded repair round. Approval of source is not browser verification.",
         agent="build/qa",
         # Default tier for the same 8k-TPM reason as the Engineer: QA's
         # prompt now carries three real product files, which alone would

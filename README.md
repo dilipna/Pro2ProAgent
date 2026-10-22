@@ -7,7 +7,8 @@ source evidence through the build.**
 [Operations console](https://protopro.vercel.app/console) ·
 [XploreMore](https://github.com/dilipna/xplore_more) ·
 [Architecture and boundaries](docs/evidence-to-product.md) ·
-[Recovery protocol](docs/durable-execution-protocol.md)
+[Recovery protocol](docs/durable-execution-protocol.md) ·
+[Prototype design and independent review](docs/prototype-quality.md)
 
 XploreMore classifies and clusters public problem reports. Pro2Pro accepts a
 versioned problem brief with original sources, explicit scope and testable acceptance
