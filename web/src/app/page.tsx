@@ -1,3 +1,4 @@
+import { EvidencePreview } from "@/components/evidence-preview";
 import { Footer } from "@/components/footer";
 import { Hero } from "@/components/hero";
 import { Method } from "@/components/method";
@@ -12,6 +13,7 @@ export default function Home() {
       <Nav />
       <main className="flex-1">
         <Hero />
+        <EvidencePreview />
         <Showcase />
         <Search />
         <Method />

@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import example from "@/data/brief-example.json";
 import { parseBrief, downloadBrief, type Brief } from "@/lib/brief";
 
@@ -11,6 +12,7 @@ export default function BriefWorkbench({
   initial: Brief | null;
   loadError: string;
 }) {
+  const router = useRouter();
   const [brief, setBrief] = useState<Brief | null>(initial),
     [error, setError] = useState(loadError),
     [notice, setNotice] = useState("");
@@ -40,6 +42,18 @@ export default function BriefWorkbench({
       );
       setBrief({ ...brief, spec: { ...brief.spec, acceptance } });
       setNotice("");
+    }
+  }
+  function sendToReview() {
+    try {
+      if (!brief) throw new Error("Select a problem first.");
+      const valid = parseBrief(JSON.stringify(brief));
+      // Same-origin, tab-scoped draft only: approvals and credentials never travel.
+      const id = crypto.randomUUID();
+      sessionStorage.setItem(`pro2pro-draft-${id}`, JSON.stringify(valid));
+      router.push(`/workspace?handoff=${id}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not transfer the draft. Export JSON instead.");
     }
   }
   function exportDraft() {
@@ -284,10 +298,11 @@ export default function BriefWorkbench({
               </button>
               <div className="journey-buttons" style={{ marginTop: 24 }}>
                 <button onClick={exportDraft}>Validate & export draft ↓</button>
-                <a href="/workspace">Open Pro2Pro review →</a>
+                <button onClick={sendToReview}>Continue to scope review →</button>
               </div>
               <p className="journey-note">
-                Export creates a local JSON file. A human must approve the exact
+                Continue carries your validated draft into the review workspace in this browser tab.
+                You can also export a JSON file. A human must approve the exact
                 imported snapshot in Pro2Pro before execution. No model runs on
                 this page.
               </p>

@@ -141,6 +141,25 @@ class Build(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
 
+class ExecutionJob(Base):
+    """One durable, explicitly authorized imported-brief execution."""
+
+    __tablename__ = "execution_jobs"
+
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"), primary_key=True)
+    idea_id: Mapped[str] = mapped_column(ForeignKey("ideas.id"))
+    approval_sha256: Mapped[str] = mapped_column(String(64))
+    code_fingerprint: Mapped[str] = mapped_column(String(64))
+    opportunity_id: Mapped[str] = mapped_column(ForeignKey("opportunities.id"), unique=True)
+    build_id: Mapped[str | None] = mapped_column(ForeignKey("builds.id"), unique=True, default=None)
+    status: Mapped[str] = mapped_column(String(20), default="queued", index=True)
+    stage: Mapped[str] = mapped_column(String(20), default="venture")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str | None] = mapped_column(Text, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class SearchRequest(Base):
     """One public keyword-search submission — the audit/rate-limit record.
 

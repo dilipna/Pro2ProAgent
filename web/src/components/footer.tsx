@@ -9,9 +9,9 @@ export function Footer() {
           <div className="max-w-xs">
             <Wordmark />
             <p className="mt-4 text-sm leading-relaxed text-mist-500">
-              Built by a company of agents.
+              Evidence from XploreMore.
               <br />
-              Supervised by a human.
+              Scope and acceptance reviewed by people.
             </p>
           </div>
 
@@ -20,17 +20,18 @@ export function Footer() {
               <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-mist-600">
                 Product
               </span>
-              <a href="#showcase" className="text-mist-300 transition-colors hover:text-mist-50">
+              <Link href="/#showcase" className="text-mist-300 transition-colors hover:text-mist-50">
                 Showcase
-              </a>
-              <a href="#method" className="text-mist-300 transition-colors hover:text-mist-50">
+              </Link>
+              <Link href="/#method" className="text-mist-300 transition-colors hover:text-mist-50">
                 Method
-              </a>
+              </Link>
             </div>
             <div className="flex flex-col gap-3">
               <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-mist-600">
                 Engineering
               </span>
+              <Link href="/engineering" className="text-mist-300 transition-colors hover:text-mist-50">Architecture & evidence</Link>
               <Link href="/console" className="text-mist-300 transition-colors hover:text-mist-50">
                 Operations console
               </Link>

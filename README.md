@@ -6,7 +6,8 @@ source evidence through the build.**
 [Open the workspace](https://protopro.vercel.app/workspace) ·
 [Operations console](https://protopro.vercel.app/console) ·
 [XploreMore](https://github.com/dilipna/xplore_more) ·
-[Architecture and boundaries](docs/evidence-to-product.md)
+[Architecture and boundaries](docs/evidence-to-product.md) ·
+[Recovery protocol](docs/durable-execution-protocol.md)
 
 XploreMore classifies and clusters public problem reports. Pro2Pro accepts a
 versioned problem brief with original sources, explicit scope and testable acceptance
@@ -31,6 +32,11 @@ customer adoption or measured quality improvement are claimed.
   configuration leaves imported approved briefs ready, without a fabricated build.
 - Candidate source inspection and a separate operator acceptance record tied to exact
   artifact bytes and observations for every approved criterion. Acceptance does not publish.
+- Imported approved briefs use persisted execution jobs, stable stage identities and
+  synchronous graph checkpoints. Real process-kill tests exercise recovery on the
+  same persistent host; duplicate HTTP admission creates one job.
+- The recorded discovery workbench transfers a validated edited draft into scope
+  review within the same browser tab. JSON export/import works across deployments.
 - Existing research, venture and browser-app generation paths remain available;
   deterministic tests exercise orchestration, not real-world model output quality.
 
@@ -65,21 +71,32 @@ availability or injection resistance.
 XploreMore /v1/problems + original source evidence
   -> versioned JSON brief -> local schema validation
   -> protected import -> exact snapshot review -> ready to build
-  -> explicit model execution -> venture dossier -> browser-app candidate
+  -> persisted execution job -> checkpointed venture -> checkpointed browser-app build
   -> functional observations -> separate artifact acceptance (no automatic publish)
 ```
 
 [Existing integration ADR](docs/adr/0012-xploremore-problem-discovery.md) ·
 [Brief contract](contracts/problem-brief.v1.schema.json) ·
-[Failure-boundary tests](tests/test_brief_handoff.py)
+[Failure-boundary tests](tests/test_brief_handoff.py) ·
+[Real process recovery tests](tests/test_durable_execution.py) ·
+[All 15 engineering ideas: fit and evidence](docs/engineering-idea-fit.md)
 
 ## Scope and limitations
 
 Public reports are problem hypotheses, not customer validation. Machine-made labels
 and clustering remain provisional. The stored 16-trial discovery comparison does not
-establish that XploreMore yields better ideas. In-process venture/build jobs are not
-a durable worker system; restarted jobs fail visibly. Operator-submitted functional
+establish that XploreMore yields better ideas. Imported approved-brief execution
+can resume from persisted SQLite checkpoints on one host. Recovery requires the
+same code/runtime fingerprint; changed approvals fail closed. Interrupted nodes
+without a committed checkpoint can repeat, including provider requests. No
+exactly-once billing or distributed-worker guarantee is claimed. Legacy discovery
+execution retains its earlier orphan handling. Operator-submitted functional
 observations are recorded assertions, not independent server verification.
+
+Persistent storage is required; an ephemeral cloud disk does not establish recovery.
+The existing Render API returned 503 during release intake, and its paid Starter
+Blueprint was not applied. Source capabilities and local validation do not prove
+remote availability. Publication and hosting changes require separate approval.
 
 The older showcase includes historical outputs. A reachable HTML deployment does not
 prove that its promised user workflow works. Use source-linked acceptance evidence
@@ -87,3 +104,18 @@ before describing a generated product as verified.
 
 Historical session notes remain in PROJECT_BRAIN.md and implementation-notes.md;
 current behavior and setup are described above and in docs/evidence-to-product.md.
+
+
+## Inspect the recovery campaign
+
+`tests/test_durable_execution.py` starts real child processes and terminates them
+at five declared execution boundaries. Each scenario resumes against the same
+isolated SQLite/checkpoint files. Tests also cover concurrent HTTP admission,
+competing workers, approval/runtime changes, bounded graph failures, additive table
+migration and an uninterrupted control. Model outputs are deterministic fixtures;
+network access is forbidden inside the worker harness.
+
+CI runs the suite with `--basetemp=test-evidence` and retains the five JSON recovery
+receipts as an Actions artifact. Receipts include stable identities, checkpoint
+counts, model-boundary sequences and artifact hashes. They do not establish actual
+model quality, latency on production hardware or absence of provider double billing.

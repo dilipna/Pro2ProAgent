@@ -22,15 +22,15 @@ export function Nav() {
         <nav className="hidden items-center gap-8 text-sm text-mist-300 md:flex">
           <Link href="/discover" className="transition-colors hover:text-mist-50">Discover</Link>
           <Link href="/workspace" className="transition-colors hover:text-mist-50">Workspace</Link>
-          <a href="#showcase" className="transition-colors hover:text-mist-50">
+          <Link href="/#showcase" className="transition-colors hover:text-mist-50">
             Showcase
-          </a>
-          <a href="#method" className="transition-colors hover:text-mist-50">
+          </Link>
+          <Link href="/#method" className="transition-colors hover:text-mist-50">
             Method
-          </a>
-          <a href="#pipeline" className="transition-colors hover:text-mist-50">
+          </Link>
+          <Link href="/#pipeline" className="transition-colors hover:text-mist-50">
             Pipeline
-          </a>
+          </Link>
         </nav>
 
         {/* Deliberately quiet: this is the operators' door, not a CTA. */}
@@ -41,6 +41,11 @@ export function Nav() {
           Console
         </Link>
       </div>
+      <nav aria-label="Mobile product navigation" className="flex justify-center gap-6 border-t border-white/5 bg-ink-950/95 px-4 py-3 text-xs text-mist-300 md:hidden">
+        <Link href="/discover">Discover</Link>
+        <Link href="/workspace">Review workspace</Link>
+        <Link href="/#method">Method</Link>
+      </nav>
       {/* Soft gradient scrim so content scrolls away cleanly under the nav */}
       <div className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b from-ink-950/90 via-ink-950/60 to-transparent" />
     </header>

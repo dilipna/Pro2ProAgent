@@ -255,29 +255,7 @@ async def maybe_resume_after_decision(run_id: str) -> bool:
 
 
 async def execute_brief_run(run_id: str) -> None:
-    """Explicitly started after approval. One claimed execution, visible failures."""
-    run = await repo.get_run(run_id)
-    if run is None or run.source != "brief" or run.status != "building":
-        return
-    try:
-        outcome = "completed"
-        for idea in run.ideas:
-            if idea.status != "approved":
-                continue
-            if await repo.approved_snapshot(idea.id) is None:
-                raise ValueError("An approved snapshot is required")
-            opportunity_id = await execute_venture(run_id, idea)
-            opportunity = await repo.get_opportunity(opportunity_id)
-            if opportunity is None or opportunity.status == "failed":
-                raise ValueError("Venture analysis failed; no build accepted")
-            if opportunity.status == "complete":
-                build = await execute_build(opportunity_id)
-                if build.status == "failed":
-                    raise ValueError("Generation failed; no artifact accepted")
-                outcome = "awaiting_acceptance" if build.status == "complete" else "needs_revision"
-            else:
-                outcome = opportunity.status
-        await repo.set_run_status(run_id, outcome)
-    except Exception as exc:
-        await repo.set_run_status(run_id, "failed", str(exc))
-        await repo.add_event(run_id, "handoff", "error", str(exc))
+    """Compatibility entry point; imported briefs use the persisted worker only."""
+    from .durable import process_job
+
+    await process_job(run_id)

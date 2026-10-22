@@ -8,7 +8,7 @@ async function proxy(
   const { path } = await params;
   const route = path.join("/");
   const allowed =
-    /^(workspace\/config|briefs\/import|briefs\/[a-f0-9]{32}(?:\/execute)?|reviews\/[A-Za-z0-9_-]+|builds\/[a-f0-9]{32}\/(?:artifact|accept))$/.test(
+    /^(workspace\/config|briefs\/import|briefs\/[a-f0-9]{32}(?:\/(?:execute|execution))?|reviews\/[A-Za-z0-9_-]+|builds\/[a-f0-9]{32}\/(?:artifact|accept))$/.test(
       route,
     );
   if (!allowed)

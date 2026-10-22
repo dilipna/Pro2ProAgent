@@ -40,3 +40,6 @@ web/out/
 # Versioned source fixtures and browser contract
 !web/src/data/
 !web/src/data/*.json
+
+# Local/CI isolated crash-campaign databases
+test-evidence/
