@@ -1,8 +1,10 @@
+import { backendConnected, browserModeResponse } from "@/lib/backend-mode";
 import { NextRequest } from "next/server";
 import { API_BASE } from "@/lib/api";
 
 /** Approve/reject one pending review from the console queue. */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
+  if (!backendConnected()) return browserModeResponse();
   const { token } = await params;
   const auth = request.headers.get("authorization");
   let body: unknown;

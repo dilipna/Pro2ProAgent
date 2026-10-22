@@ -19,7 +19,7 @@ function locator(page,step) {
   if(step.label) return page.getByLabel(step.label,{exact:step.exact??false});
   throw new Error('Each action requires a role/name or label; arbitrary scripts are not supported.');
 }
-async function perform(page,steps) {
+export async function perform(page,steps) {
   for(const step of steps) {
     if(step.action==='reload') {await page.reload({waitUntil:'networkidle'});continue;}
     if(step.action==='downloadJson') {

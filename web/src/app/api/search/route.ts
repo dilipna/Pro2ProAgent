@@ -1,3 +1,4 @@
+import { backendConnected, browserModeResponse } from "@/lib/backend-mode";
 import { NextRequest } from "next/server";
 import { API_BASE } from "@/lib/api";
 
@@ -7,6 +8,7 @@ import { API_BASE } from "@/lib/api";
  * the caller's address is forwarded so per-client rate limiting works.
  */
 export async function POST(request: NextRequest) {
+  if (!backendConnected()) return browserModeResponse();
   let body: unknown;
   try {
     body = await request.json();

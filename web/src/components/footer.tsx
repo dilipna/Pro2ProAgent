@@ -23,6 +23,7 @@ export function Footer() {
               <Link href="/#showcase" className="text-mist-300 transition-colors hover:text-mist-50">
                 Showcase
               </Link>
+              <Link href="/prototypes" className="text-mist-300 transition-colors hover:text-mist-50">Try Decision Desk</Link>
               <Link href="/#method" className="text-mist-300 transition-colors hover:text-mist-50">
                 Method
               </Link>

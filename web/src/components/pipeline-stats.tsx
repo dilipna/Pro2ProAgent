@@ -17,7 +17,7 @@ async function loadStats() {
     getStats(),
     getOpportunities(),
   ]);
-  if (!stats || !opportunities) return { items: FALLBACK_STATS, label: "Recorded pipeline snapshot · live API unavailable" };
+  if (!stats || !opportunities) return { items: FALLBACK_STATS, label: "Recorded pipeline snapshot · not live telemetry" };
   const byStatus = stats.ideas_by_status;
   // Everything that passed the analyst gate, whatever the human decided.
   const shortlisted =

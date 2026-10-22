@@ -3,6 +3,7 @@
 **Inspect a reported problem, approve a bounded specification, and preserve the
 source evidence through the build.**
 
+[Browser edition and local setup](docs/browser-edition.md) ·
 [Open the workspace](https://protopro.vercel.app/workspace) ·
 [Operations console](https://protopro.vercel.app/console) ·
 [XploreMore](https://github.com/dilipna/xplore_more) ·
@@ -55,6 +56,11 @@ pnpm test
 pnpm lint
 pnpm build
 ```
+
+The website defaults to browser mode: recorded search, local reviews and the
+Decision Desk reference work without an API. To connect a native web server to
+a local backend, explicitly set `PROTOPRO_BACKEND_MODE=connected`; Compose sets
+this automatically. See [browser edition setup](docs/browser-edition.md).
 
 Follow [the local rehearsal](docs/evidence-to-product.md#local-rehearsal-without-paid-calls)
 for API and web startup. Set `API_TOKEN` for operator access. Explicit development
