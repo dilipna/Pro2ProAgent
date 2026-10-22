@@ -69,11 +69,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       - run: pnpm lint
-      - name: Build (API unreachable — exercises the seeded-fallback contract)
+      - name: Build browser edition (no upstream API calls)
         run: pnpm build
 
   prototype-review:
-    name: Prototype browser evidence (offline)
+    name: Prototype and website browser evidence
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -89,14 +89,26 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Check reviewer rejection behavior
         run: npm test
+      - name: Check public demo matches its canonical source
+        run: node ../sync-browser-demo.mjs --check
       - name: Review handcrafted design reference (not model benchmark)
         run: node review.mjs ../../examples/decision-desk ../../test-evidence/prototype-browser ../../examples/decision-desk/scenarios.json
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+      - name: Build real website for browser integration checks
+        working-directory: web
+        run: pnpm install --frozen-lockfile && pnpm build
+      - name: Exercise browser edition and connected opt-in against local stub
+        run: node browser-edition.mjs ../../test-evidence/browser-edition
       - name: Preserve screenshots and behavior report
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: protopro-prototype-browser-${{ github.sha }}
-          path: test-evidence/prototype-browser/**
+          path: |
+            test-evidence/prototype-browser/**
+            test-evidence/browser-edition/**
           if-no-files-found: warn
           retention-days: 7
 

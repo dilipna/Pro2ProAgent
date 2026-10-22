@@ -77,16 +77,16 @@ export function Hero() {
 
         <div className="animate-rise mt-10 flex flex-wrap items-center gap-4 [animation-delay:270ms]">
           <a
-            href="/workspace"
+            href="/prototypes"
             className="ember-gloss rounded-full px-6 py-3 text-sm font-medium text-mist-50 shadow-ember-sm transition-shadow hover:shadow-ember"
           >
-            Inspect a problem brief →
+            Try a working prototype →
           </a>
           <a
-            href="#method"
+            href="/workspace"
             className="glass rounded-full px-6 py-3 text-sm text-mist-300 transition-colors hover:text-mist-50"
           >
-            How it works
+            Inspect a problem brief
           </a>
         </div>
       </div>

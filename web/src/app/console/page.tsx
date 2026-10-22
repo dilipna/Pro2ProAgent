@@ -1,3 +1,4 @@
+import { backendConnected } from "@/lib/backend-mode";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getCosts, getOpportunities, getRuns, getStats } from "@/lib/api";
@@ -324,6 +325,8 @@ async function CostPanel() {
 }
 
 export default function ConsolePage() {
+  if (!backendConnected()) return <main className="mx-auto w-full max-w-3xl px-6 py-24"><Link href="/"><Wordmark /></Link><p className="mt-12 font-mono text-xs uppercase text-maroon-300">Browser edition / operator console</p><h1 className="mt-6 text-4xl">Run the pipeline locally.</h1><p className="mt-6 leading-relaxed text-mist-300">The public demo uses recorded evidence and browser-local reviews. Live queues, execution and telemetry require the authenticated backend with persistent storage. No operator credentials are collected on this page.</p><div className="mt-8 flex flex-wrap gap-6"><Link href="/prototypes" className="text-maroon-300">Try Decision Desk →</Link><Link href="/workspace">Review a problem brief →</Link><a href="https://github.com/dilipna/Pro2ProAgent/blob/improve/evidence-to-product/docs/browser-edition.md">Local setup guide ↗</a></div></main>;
+
   return (
     <div className="grain relative flex min-h-svh flex-col">
       <header className="border-b hairline">

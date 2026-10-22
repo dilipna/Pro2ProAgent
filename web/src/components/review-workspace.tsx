@@ -16,7 +16,7 @@ type Inspection = {
   pending: { token: string; snapshot_sha256: string; snapshot: unknown }[];
   events: { agent: string; type: string; message: string }[];
 };
-export default function Workspace({ handoff }: { handoff: string | null }) {
+export default function Workspace({ handoff, connected }: { handoff: string | null; connected: boolean }) {
   const [brief, setBrief] = useState<Brief | null>(null),
     [raw, setRaw] = useState("");
   const [execution, setExecution] = useState<Execution | null>(null);
@@ -434,6 +434,7 @@ export default function Workspace({ handoff }: { handoff: string | null }) {
             )}
           </section>
         )}
+        {connected ? (
         <section className="journey-connect">
           <div>
             <p className="journey-kicker">OPERATOR CONNECTION</p>
@@ -463,6 +464,7 @@ export default function Workspace({ handoff }: { handoff: string | null }) {
             </button>
           </div>
         </section>
+        ) : <section className="journey-connect"><div><p className="journey-kicker">BROWSER EDITION</p><h2>Review here. Build locally.</h2><p className="journey-note">Brief validation, local decisions and JSON exports work in this browser. Authenticated imports, model generation and artifact acceptance require the local backend. No operator key is needed here.</p><Link href="/prototypes">Try Decision Desk →</Link> · <a href="https://github.com/dilipna/Pro2ProAgent/blob/improve/evidence-to-product/docs/browser-edition.md">Local setup guide ↗</a></div></section>}
         {inspection && (
           <section className="journey-panel journey-review">
             <div className="journey-status">

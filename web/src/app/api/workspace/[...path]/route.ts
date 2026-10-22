@@ -1,3 +1,4 @@
+import { backendConnected, browserModeResponse } from "@/lib/backend-mode";
 import { NextRequest } from "next/server";
 import { API_BASE } from "@/lib/api";
 
@@ -5,6 +6,7 @@ async function proxy(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> },
 ) {
+  if (!backendConnected()) return browserModeResponse();
   const { path } = await params;
   const route = path.join("/");
   const allowed =

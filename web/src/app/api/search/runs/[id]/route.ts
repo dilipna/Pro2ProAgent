@@ -1,7 +1,9 @@
+import { backendConnected, browserModeResponse } from "@/lib/backend-mode";
 import { API_BASE } from "@/lib/api";
 
 /** Read-only run-status proxy for the search box's progress polling. */
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  if (!backendConnected()) return browserModeResponse();
   const { id } = await params;
   try {
     const res = await fetch(`${API_BASE}/api/v1/runs/${encodeURIComponent(id)}`, {

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A local reference prototype for reviewing proposed agent actions. No tools are executed.">
+  <title>Decision Desk · A little judgment before action</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to review queue</a>
+  <div class="app-shell">
+    <aside class="rail" aria-label="Product information">
+      <a class="brand" href="/prototypes" aria-label="Back to ProToPro prototype notes"><span class="brand-mark" aria-hidden="true">d<span>.</span></span>decision desk</a>
+      <div class="rail-section"><p class="eyebrow">WORKSPACE / 01</p><p class="rail-current"><span aria-hidden="true">↳</span> Action review <span class="rail-dot" aria-hidden="true"></span></p></div>
+      <div class="rail-note"><div class="orbit" aria-hidden="true"><span></span></div><h2>Useful agents.<br>Deliberate decisions.</h2><p>A small pause between what an agent proposes and what a person permits.</p></div>
+      <div class="rail-footer"><span class="local-dot" aria-hidden="true"></span>Browser-local reference<br><small>No tools or external services connected.</small><a class="back-to-product" href="/prototypes">← Back to ProToPro</a></div>
+    </aside>
+    <main id="main">
+      <header class="topbar"><span class="breadcrumb">Workspace <span>/</span> Action review</span><span class="example-label">ILLUSTRATIVE EXAMPLES</span></header>
+      <section class="intro" aria-labelledby="page-title"><div><p class="eyebrow">THE HUMAN CHECKPOINT</p><h1 id="page-title">A little judgment.<br><em>Before action.</em></h1><p>Inspect the proposal, weigh its scope, and leave a decision someone can understand.</p></div><div class="intro-tools"><button id="export-log" class="button button-dark" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 16v5h14v-5"/></svg>Export review log</button><span>Decisions stay in this browser.</span></div></section>
+      <section class="overview" aria-label="Current queue summary"><div><span class="metric-label">AWAITING A PERSON</span><strong id="pending-count">—</strong><span>proposals to inspect</span></div><div><span class="metric-label">DECISIONS RECORDED</span><strong id="decided-count">—</strong><span>with a traceable note</span></div><div class="boundary"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 4v5c0 5-8 9-8 9s-8-4-8-9V7l8-4Zm-4 9 3 3 5-6"/></svg><div><strong>Your review is the boundary.</strong><p>Recording a decision never executes a tool.</p></div></div></section>
+      <div class="workspace-grid">
+        <section class="queue-panel" aria-labelledby="queue-title">
+          <div class="section-title"><h2 id="queue-title">Review queue <span id="visible-count"></span></h2><span class="small-label">EXAMPLE WORKSPACE</span></div>
+          <div class="filters" role="group" aria-label="Filter proposals"><button class="filter active" data-filter="pending" aria-pressed="true" type="button">Needs review</button><button class="filter" data-filter="all" aria-pressed="false" type="button">All proposals</button><button class="filter" data-filter="decided" aria-pressed="false" type="button">Reviewed</button></div>
+          <label class="search-label" for="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></svg><span class="sr-only">Search proposals</span><input id="search" type="search" placeholder="Find an action, tool, or agent…" autocomplete="off"></label>
+          <div id="queue-list" class="queue-list"></div>
+          <div id="queue-empty" class="empty-state" hidden><span class="empty-mark" aria-hidden="true">↳</span><h3 id="empty-title">A clear desk.</h3><p id="empty-copy">Nothing needs your attention.</p><button id="empty-action" class="button button-light" type="button">Load examples</button></div>
+          <div class="queue-footer"><span id="workspace-mode">Example data · not real requests</span><div><button class="text-button" id="start-empty" type="button">Start empty</button><button class="text-button" id="reset-examples" type="button">Reset examples</button></div></div>
+        </section>
+        <section class="inspector" aria-labelledby="detail-title">
+          <div class="inspector-top"><span class="eyebrow">PROPOSAL INSPECTOR</span><span id="detail-id" class="mono">SELECT A PROPOSAL</span></div>
+          <div id="detail-empty" class="detail-empty"><span aria-hidden="true">↗</span><h2>Make room for a closer look.</h2><p>Select a proposal to inspect its evidence, scope and requested action.</p></div>
+          <div id="detail-body" hidden>
+            <div class="detail-heading"><span id="detail-risk" class="risk"></span><span id="detail-state" class="state-label"></span></div>
+            <h2 id="detail-title" tabindex="-1"></h2><p id="detail-description" class="detail-description"></p>
+            <dl class="metadata"><div><dt>REQUESTED BY</dt><dd id="detail-agent"></dd></div><div><dt>TOOL</dt><dd id="detail-tool" class="mono"></dd></div></dl>
+            <div class="scope-box"><h3>What you’re reviewing</h3><p id="detail-scope"></p><div class="scope-foot"><span aria-hidden="true">↳</span> Example scope. No action will be executed.</div></div>
+            <div class="payload-heading"><h3>Proposed input</h3><span class="small-label">READ ONLY</span></div><pre id="detail-payload" tabindex="0" aria-label="Proposed tool input"></pre>
+            <form id="decision-form" novalidate><label for="review-note">Decision note <span>Required · make the reasoning useful</span></label><textarea id="review-note" rows="3" maxlength="500" placeholder="What makes this safe to approve, or necessary to decline?" aria-describedby="note-error"></textarea><p id="note-error" class="field-error" role="alert" hidden></p><div class="decision-buttons"><button class="button button-light" type="submit" name="decision" value="rejected">Decline proposal</button><button class="button button-accent" type="submit" name="decision" value="approved">Approve locally <span aria-hidden="true">↗</span></button></div><p class="decision-hint">A local decision record. Never permission for a live system.</p></form>
+            <div id="recorded-decision" class="recorded-decision" hidden><p class="eyebrow">REVIEW RECORDED</p><strong id="recorded-title"></strong><p id="recorded-note"></p><span id="recorded-time" class="small-label"></span></div>
+          </div>
+        </section>
+      </div>
+      <section class="activity" aria-labelledby="activity-title"><div class="section-title"><h2 id="activity-title">The decision trail</h2><span class="small-label">YOUR LOCAL REVIEWS</span></div><div id="activity-list"></div></section>
+      <footer class="page-footer"><span>Decision Desk <span class="footer-cross">×</span> ProToPro</span><span>A handcrafted design reference · not an AI output benchmark</span></footer>
+    </main>
+  </div>
+  <div id="status" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

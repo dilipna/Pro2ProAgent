@@ -1,3 +1,5 @@
+import { backendConnected } from "@/lib/backend-mode";
+export const dynamic = "force-dynamic";
 import Workspace from "@/components/review-workspace";
 
 export default async function WorkspacePage({
@@ -8,5 +10,5 @@ export default async function WorkspacePage({
   const params = await searchParams;
   const handoff = typeof params.handoff === "string" && /^[a-f0-9-]{36}$/.test(params.handoff)
     ? params.handoff : null;
-  return <Workspace handoff={handoff} />;
+  return <Workspace handoff={handoff} connected={backendConnected()} />;
 }
