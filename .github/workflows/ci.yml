@@ -111,8 +111,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
       - name: Validate promptfooconfig.yaml schema
+        # Pin the CLI and its compatible SDK: the floating install selected an
+        # openai@7.42.0 tarball that returned 404 before validation could run.
         # `validate config` is schema-only; `validate target` would actually
         # invoke providers (real LLM calls) and belongs in promptfoo.yml
         # instead, gated on a funded key being available.
-        run: npx --yes promptfoo@latest validate config -c promptfooconfig.yaml
+        run: npx --yes --package=promptfoo@0.124.1 --package=openai@7.41.0 promptfoo validate config -c promptfooconfig.yaml
