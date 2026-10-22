@@ -18,6 +18,7 @@ from ..models import AnalyzedIdea, XploreMoreProvenance
 from .engine import session
 from .models import (
     Build,
+    ExecutionJob,
     Idea,
     LlmCall,
     Opportunity,
@@ -86,7 +87,13 @@ async def fail_orphaned_runs() -> int:
     ("awaiting_review") are checkpointed and genuinely resumable, so they are
     left untouched. Called once at startup. Returns how many were swept."""
     async with session() as s:
-        rows = await s.execute(select(Run).where(Run.status.in_(("running", "resuming", "building"))))
+        durable_runs = select(ExecutionJob.run_id).where(ExecutionJob.status.in_(("queued", "running")))
+        rows = await s.execute(
+            select(Run).where(
+                Run.status.in_(("running", "resuming", "building")),
+                Run.id.not_in(durable_runs),
+            )
+        )
         orphans = list(rows.scalars())
         for run in orphans:
             run.status = "failed"
@@ -792,16 +799,9 @@ async def import_brief(brief: ProblemBrief) -> tuple[Run, Idea, Review, bool]:
 
 
 async def claim_brief_execution(run_id: str) -> bool:
-    async with session() as s:
-        result = await s.execute(
-            update(Run)
-            .where(Run.id == run_id, Run.source == "brief", Run.status == "ready_to_build")
-            .values(status="building")
-            .returning(Run.id)
-        )
-        claimed = result.scalar_one_or_none() is not None
-        await s.commit()
-        return claimed
+    from .executions import enqueue
+
+    return await enqueue(run_id)
 
 
 async def record_artifact_decision(build_id: str, decision) -> bool:

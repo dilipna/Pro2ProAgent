@@ -94,11 +94,23 @@ fakes in orchestration tests, not measurements of model quality.
 
 ## Boundaries and failure recovery
 
-Discovery checkpoints survive a human pause. Venture/build work remains in-process;
-a restart marks in-flight runs failed rather than pretending they resumed. This release
-prevents duplicate approval-driven launches; it does not introduce a durable worker
-queue or guarantee exactly-once external side effects. A failed build requires explicit
-operator investigation; the old recorded artifacts remain inspectable.
+Discovery checkpoints survive a human pause. Imported approved briefs now also
+use a persisted execution job and checkpointed venture/build graphs. Claiming the
+run, creating its job and assigning its opportunity identity commit atomically.
+A lifespan worker drains pending jobs; a kernel lock permits one imported-brief
+worker per persistent host. Build identity is assigned once before generation.
+
+A process restart resumes the same job with the same graph thread IDs. The worker
+revalidates the approved snapshot and source/runtime fingerprint before recovery.
+Missing configuration leaves the job queued without consuming an attempt; genuine
+graph errors become visible terminal failures requiring operator investigation.
+Code/runtime changes require review rather than silently replaying old checkpoints.
+
+This guarantee requires persistent SQLite/checkpoint files on a single host.
+Ephemeral cloud disks do not establish durability. Interrupted nodes without a
+committed checkpoint can repeat, including model requests; no exactly-once billing
+claim is made. Legacy discovery-triggered venture/build paths retain their prior
+orphan handling. See `durable-execution-protocol.md` for the frozen failure campaign.
 
 SQLite additive migrations cover existing deployed databases, including nullable
 snapshot and acceptance fields. Legacy reviews without a bound snapshot cannot
@@ -129,3 +141,15 @@ existing Render API returned HTTP 503 while the Vercel website returned 200. The
 Render Blueprint specifies a paid Starter service; it was not applied or reactivated
 as part of local validation. Local queue, approval and artifact checks do not prove
 that remote service is available.
+
+
+## Same-tab draft handoff
+
+The recorded `/discover` workbench validates the edited specification before
+placing a draft in browser session storage. Its opaque handoff ID opens
+`/workspace`, where the visitor explicitly loads the draft. The URL contains no
+source excerpts, credentials or approval. Missing tab storage has a recoverable
+error and JSON import remains available. Browser rehearsal is separate from the
+authenticated, snapshot-bound backend decision.
+
+See `engineering-idea-fit.md` for the disposition of all 15 supplied ideas.

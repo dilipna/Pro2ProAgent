@@ -10,7 +10,7 @@ import hashlib
 import json
 import logging
 import secrets
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime, timedelta
 from html import escape
 
@@ -20,7 +20,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import ValidationError
 from sse_starlette.sse import EventSourceResponse
 
-from .. import runner
+from .. import durable, runner
 from ..briefs import ArtifactDecision, ProblemBrief, artifact_digest
 from ..config import get_settings
 from ..db import repository as repo
@@ -62,9 +62,15 @@ async def lifespan(app: FastAPI):
     swept = await repo.fail_orphaned_runs()
     if swept:
         logging.getLogger(__name__).warning("swept %d orphaned run(s) to failed at startup", swept)
-    yield
-    await runner.shutdown_pipeline()
-    await dispose_engine()
+    worker = asyncio.create_task(durable.worker_loop())
+    try:
+        yield
+    finally:
+        worker.cancel()
+        with suppress(asyncio.CancelledError):
+            await worker
+        await runner.shutdown_pipeline()
+        await dispose_engine()
 
 
 app = FastAPI(title="ProToPro API", version="1.1", lifespan=lifespan)
@@ -339,7 +345,9 @@ async def import_problem_brief(request: Request):
     try:
         brief = ProblemBrief.model_validate_json(bytes(raw))
     except ValidationError as exc:
-        raise HTTPException(status_code=422, detail=exc.errors(include_input=False, include_context=False)) from exc
+        raise HTTPException(
+            status_code=422, detail=exc.errors(include_input=False, include_context=False)
+        ) from exc
     run, idea, review, created = await repo.import_brief(brief)
     if created:
         await repo.add_event(
@@ -399,8 +407,29 @@ async def execute_approved_brief(run_id: str):
         )
     if not await repo.claim_brief_execution(run_id):
         raise HTTPException(status_code=409, detail="Run is not ready to build or execution already claimed")
-    asyncio.create_task(runner.execute_brief_run(run_id))
+    # Admission committed the job; the lifespan worker discovers it. No
+    # untracked request-owned task can outlive shutdown or lose this handoff.
     return {"run_id": run_id, "status": "building"}
+
+
+@app.get("/api/v1/briefs/{run_id}/execution", dependencies=[Depends(require_operator)])
+async def inspect_brief_execution(run_id: str):
+    from ..db.executions import get_job
+
+    job = await get_job(run_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Execution job not found")
+    return {
+        "run_id": job.run_id,
+        "status": job.status,
+        "stage": job.stage,
+        "attempts": job.attempts,
+        "opportunity_id": job.opportunity_id,
+        "build_id": job.build_id,
+        "approval_sha256": job.approval_sha256,
+        "error": job.error,
+        "model_configured": bool(get_settings().active_api_key),
+    }
 
 
 @app.get("/api/v1/builds/{build_id}/artifact", dependencies=[Depends(require_operator)])

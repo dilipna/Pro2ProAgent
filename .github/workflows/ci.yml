@@ -36,7 +36,16 @@ jobs:
         run: uv run ruff check src tests
 
       - name: pytest
-        run: uv run pytest -q
+        run: uv run pytest -q --basetemp=test-evidence
+
+      - name: Preserve process-recovery receipts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: protopro-recovery-${{ github.sha }}
+          path: test-evidence/**/recovery-receipt.json
+          if-no-files-found: warn
+          retention-days: 7
 
   web:
     name: Web (lint + build)
