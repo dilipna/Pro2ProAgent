@@ -26,4 +26,3 @@ async def test_guardrails_blocks_spam_and_allows_legit_idea():
 
     assert await is_idea_allowed(legit) is True
     assert await is_idea_allowed(spam) is False
-

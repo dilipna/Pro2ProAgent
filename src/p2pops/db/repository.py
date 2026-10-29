@@ -9,14 +9,16 @@ import json
 import secrets
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import selectinload
 
+from ..briefs import ProblemBrief, canonical, digest, idea_snapshot
 from ..config import get_settings
 from ..models import AnalyzedIdea, XploreMoreProvenance
 from .engine import session
 from .models import (
     Build,
+    ExecutionJob,
     Idea,
     LlmCall,
     Opportunity,
@@ -85,7 +87,13 @@ async def fail_orphaned_runs() -> int:
     ("awaiting_review") are checkpointed and genuinely resumable, so they are
     left untouched. Called once at startup. Returns how many were swept."""
     async with session() as s:
-        rows = await s.execute(select(Run).where(Run.status.in_(("running", "building"))))
+        durable_runs = select(ExecutionJob.run_id).where(ExecutionJob.status.in_(("queued", "running")))
+        rows = await s.execute(
+            select(Run).where(
+                Run.status.in_(("running", "resuming", "building")),
+                Run.id.not_in(durable_runs),
+            )
+        )
         orphans = list(rows.scalars())
         for run in orphans:
             run.status = "failed"
@@ -227,9 +235,7 @@ async def reviewed_ideas() -> list[Idea]:
     is needed -- these two status values *are* the human label."""
     async with session() as s:
         rows = await s.execute(
-            select(Idea)
-            .where(Idea.status.in_(("approved", "declined")))
-            .order_by(Idea.discovered_at)
+            select(Idea).where(Idea.status.in_(("approved", "declined"))).order_by(Idea.discovered_at)
         )
         return list(rows.scalars())
 
@@ -505,7 +511,13 @@ async def recent_search_run(normalized: str, since: datetime) -> SearchRequest |
 async def create_review(run_id: str, idea_id: str) -> Review:
     settings = get_settings()
     async with session() as s:
+        idea = await s.get(Idea, idea_id)
+        if idea is None:
+            raise ValueError("Unknown idea")
+        snapshot = idea_snapshot(idea)
         review = Review(
+            snapshot=canonical(snapshot),
+            snapshot_sha256=digest(snapshot),
             id=secrets.token_urlsafe(32),
             run_id=run_id,
             idea_id=idea_id,
@@ -516,31 +528,72 @@ async def create_review(run_id: str, idea_id: str) -> Review:
         return review
 
 
-async def record_decision(token: str, decision: str) -> Review | None:
-    """Consumes a review token. Returns None if unknown, already used, or expired."""
+async def get_review(token: str) -> Review | None:
     async with session() as s:
-        review = await s.get(Review, token)
-        if review is None or review.decision != "pending":
+        return await s.get(Review, token)
+
+
+async def record_decision(token: str, decision: str, expected_sha256: str | None = None) -> Review | None:
+    """Atomic single-use consumption; malformed decisions never authorize work."""
+    if decision not in ("approved", "rejected"):
+        return None
+    async with session() as s:
+        current = await s.get(Review, token)
+        if current is None:
             return None
-        expires = review.expires_at
-        if expires.tzinfo is None:  # SQLite round-trips naive datetimes
-            expires = expires.replace(tzinfo=UTC)
-        if expires < datetime.now(UTC):
+        idea = await s.get(Idea, current.idea_id)
+        if decision == "approved":
+            if (
+                idea is None
+                or current.snapshot_sha256 is None
+                or digest(idea_snapshot(idea)) != current.snapshot_sha256
+            ):
+                return None
+            if expected_sha256 is not None and expected_sha256 != current.snapshot_sha256:
+                return None
+        result = await s.execute(
+            update(Review)
+            .where(
+                Review.id == token,
+                Review.decision == "pending",
+                Review.expires_at > utcnow(),
+                Review.snapshot_sha256 == current.snapshot_sha256,
+            )
+            .values(decision=decision, decided_at=utcnow())
+            .execution_options(synchronize_session="fetch")
+            .returning(Review)
+        )
+        review = result.scalar_one_or_none()
+        if review is None:
             return None
-        review.decision = decision
-        review.decided_at = utcnow()
-        idea = await s.get(Idea, review.idea_id)
-        if idea is not None:
-            idea.status = "approved" if decision == "approved" else "declined"
+        await s.execute(
+            update(Idea)
+            .where(Idea.id == review.idea_id)
+            .values(status="approved" if decision == "approved" else "declined")
+        )
         await s.commit()
         return review
 
 
+async def claim_resume(run_id: str) -> bool:
+    """One durable transition wins even when final decisions arrive together."""
+    async with session() as s:
+        pending = select(Review.id).where(Review.run_id == run_id, Review.decision == "pending").exists()
+        decided = select(Review.id).where(Review.run_id == run_id).exists()
+        result = await s.execute(
+            update(Run)
+            .where(Run.id == run_id, Run.status == "awaiting_review", ~pending, decided)
+            .values(status="resuming")
+            .returning(Run.id)
+        )
+        won = result.scalar_one_or_none() is not None
+        await s.commit()
+        return won
+
+
 async def pending_reviews(run_id: str) -> list[Review]:
     async with session() as s:
-        rows = await s.execute(
-            select(Review).where(Review.run_id == run_id, Review.decision == "pending")
-        )
+        rows = await s.execute(select(Review).where(Review.run_id == run_id, Review.decision == "pending"))
         return list(rows.scalars())
 
 
@@ -571,9 +624,7 @@ async def all_pending_reviews() -> list[Review]:
 async def decisions_for_run(run_id: str) -> dict[str, str]:
     """idea_id -> approved|rejected for every decided review in the run."""
     async with session() as s:
-        rows = await s.execute(
-            select(Review).where(Review.run_id == run_id, Review.decision != "pending")
-        )
+        rows = await s.execute(select(Review).where(Review.run_id == run_id, Review.decision != "pending"))
         return {r.idea_id: r.decision for r in rows.scalars()}
 
 
@@ -669,3 +720,135 @@ async def cost_summary() -> dict:
                 for provider, model, c, t, cost in by_model_rows
             ],
         }
+
+
+async def approved_snapshot(idea_id: str) -> dict | None:
+    async with session() as s:
+        row = (
+            await s.execute(
+                select(Review)
+                .where(Review.idea_id == idea_id, Review.decision == "approved")
+                .order_by(Review.decided_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if row is None or row.snapshot is None:
+            return None
+        snapshot = json.loads(row.snapshot)
+        if digest(snapshot) != row.snapshot_sha256:
+            raise ValueError("Approved snapshot failed integrity validation")
+        idea = await s.get(Idea, idea_id)
+        if idea is None or digest(idea_snapshot(idea)) != row.snapshot_sha256:
+            raise ValueError("Idea changed after approval; a new review is required")
+        return {"sha256": row.snapshot_sha256, "content": snapshot}
+
+
+async def import_brief(brief: ProblemBrief) -> tuple[Run, Idea, Review, bool]:
+    """Idempotent explicit operator import; never invokes an LLM or emails anyone."""
+    from sqlalchemy.exc import IntegrityError
+
+    payload = brief.model_dump(mode="json")
+    sha = digest(payload)
+
+    async def existing():
+        async with session() as s:
+            idea = (await s.execute(select(Idea).where(Idea.brief_sha256 == sha))).scalar_one_or_none()
+            if idea is None:
+                return None
+            run = await s.get(Run, idea.run_id)
+            review = (await s.execute(select(Review).where(Review.idea_id == idea.id))).scalar_one()
+            return run, idea, review, False
+
+    found = await existing()
+    if found:
+        return found
+    try:
+        async with session() as s:
+            run = Run(topic=brief.source.statement[:300], source="brief", status="awaiting_review")
+            s.add(run)
+            await s.flush()
+            idea = Idea(
+                run_id=run.id,
+                title=brief.spec.goal[:300],
+                description=brief.source.statement,
+                source_url=str(brief.source.evidence[0].url),
+                status="shortlisted",
+                xploremore_problem_id=brief.source.problem_id,
+                problem_brief=canonical(payload),
+                brief_sha256=sha,
+            )
+            s.add(idea)
+            await s.flush()
+            snapshot = idea_snapshot(idea)
+            review = Review(
+                id=secrets.token_urlsafe(32),
+                run_id=run.id,
+                idea_id=idea.id,
+                expires_at=datetime.now(UTC) + timedelta(hours=get_settings().review_token_ttl_hours),
+                snapshot=canonical(snapshot),
+                snapshot_sha256=digest(snapshot),
+            )
+            s.add(review)
+            await s.commit()
+            return run, idea, review, True
+    except IntegrityError:
+        found = await existing()
+        if found:
+            return found
+        raise
+
+
+async def claim_brief_execution(run_id: str) -> bool:
+    from .executions import enqueue
+
+    return await enqueue(run_id)
+
+
+async def record_artifact_decision(build_id: str, decision) -> bool:
+    from ..briefs import artifact_digest
+
+    async with session() as s:
+        build = await s.get(Build, build_id)
+        if build is None or build.status != "complete" or not build.dossier or build.acceptance:
+            return False
+        dossier = json.loads(build.dossier)
+        if not dossier.get("scaffold_files"):
+            return False
+        approved = dossier.get("approved_snapshot")
+        if not approved or not approved["content"].get("brief"):
+            return False
+        if artifact_digest(dossier) != decision.artifact_sha256:
+            return False
+        expected = set(range(len(approved["content"]["brief"]["spec"]["acceptance"])))
+        actual = [c.criterion for c in decision.checks]
+        if set(actual) != expected or len(actual) != len(expected):
+            return False
+        if decision.decision == "accept" and not all(c.passed for c in decision.checks):
+            return False
+        record = decision.model_dump(mode="json") | {
+            "recorded_at": utcnow().isoformat(),
+            "authority": "operator-submitted functional observations; not independently verified by server",
+        }
+        result = await s.execute(
+            update(Build)
+            .where(Build.id == build_id, Build.acceptance.is_(None), Build.status == "complete")
+            .values(acceptance=canonical(record))
+            .returning(Build.id)
+        )
+        if result.scalar_one_or_none() is None:
+            return False
+        await s.execute(
+            update(Run)
+            .where(Run.id == build.run_id, Run.source == "brief")
+            .values(status="accepted" if decision.decision == "accept" else "needs_revision")
+        )
+        await s.commit()
+        return True
+
+
+async def opportunities_for_run(run_id: str) -> list[Opportunity]:
+    async with session() as s:
+        rows = await s.execute(
+            select(Opportunity).where(Opportunity.run_id == run_id).order_by(Opportunity.created_at)
+        )
+        return list(rows.scalars())

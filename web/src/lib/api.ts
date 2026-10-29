@@ -13,6 +13,8 @@
  */
 
 /** Exported for the route-handler proxies (search, console queue, SSE). */
+import { backendConnected } from "./backend-mode";
+
 export const API_BASE = process.env.PROTOPRO_API_URL ?? "http://127.0.0.1:8000";
 
 /** Landing-page data is ISR-cached; minutes of staleness are fine. */
@@ -87,6 +89,8 @@ export interface ApiSearchResult {
 }
 
 export interface ApiPendingReview {
+  snapshot?: Record<string, unknown> | null;
+  snapshot_sha256?: string | null;
   token: string;
   run_id: string;
   created_at: string;
@@ -195,6 +199,7 @@ function raceTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 async function get<T>(path: string, opts: GetOptions = {}): Promise<T | null> {
+  if (!backendConnected()) return null;
   try {
     const res = await raceTimeout(
       fetch(`${API_BASE}${path}`, {

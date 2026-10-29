@@ -71,7 +71,7 @@ export function ApprovalQueue() {
           "Content-Type": "application/json",
           ...(operatorKey ? { Authorization: `Bearer ${operatorKey}` } : {}),
         },
-        body: JSON.stringify({ decision }),
+        body: JSON.stringify({ decision, snapshot_sha256: state.phase === "ready" ? state.reviews.find(r => r.token === token)?.snapshot_sha256 : undefined }),
       });
       if (res.ok) {
         const body = (await res.json()) as { decision: string; run_resumed: boolean };
@@ -160,6 +160,7 @@ export function ApprovalQueue() {
                     <p className="mt-2 max-w-2xl text-sm leading-relaxed text-mist-300">
                       {review.idea.description}
                     </p>
+                    {review.snapshot && <details className="mt-4"><summary>Inspect the exact approval snapshot</summary><pre className="mt-3 max-h-72 max-w-full overflow-auto whitespace-pre-wrap break-all text-xs">{JSON.stringify(review.snapshot, null, 2)}</pre><p className="mt-2 break-all font-mono text-xs">SHA-256: {review.snapshot_sha256}</p></details>}
                     {review.idea.reasoning && (
                       <p className="mt-2 max-w-2xl text-sm leading-relaxed text-mist-500">
                         {review.idea.reasoning}
@@ -180,7 +181,7 @@ export function ApprovalQueue() {
                       disabled={deciding === review.token}
                       className="ember-gloss rounded-full px-5 py-2.5 text-sm font-medium text-mist-50 shadow-ember-sm transition-shadow hover:shadow-ember disabled:opacity-60"
                     >
-                      Approve build
+                      Approve this snapshot
                     </button>
                     <button
                       onClick={() => decide(review.token, "reject")}

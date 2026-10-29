@@ -1,3 +1,7 @@
+> Current redevelopment: see docs/evidence-to-product.md and README.md for the
+> snapshot-bound review workflow and current feature boundaries. Older session
+> claims below describe their historical state and are not current deployment proof.
+
 # PROJECT_BRAIN.md — ProToPro Single Source of Truth
 
 > **How to use this file:** open a fresh Claude session and say "Read PROJECT_BRAIN.md and continue development." Everything needed to pick up work with zero prior context lives here. **Section 15 (Session Handoff) is the most important section and is updated at the end of every significant work session** — read it first if you're in a hurry.

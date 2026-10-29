@@ -83,9 +83,7 @@ async def analyst_node(state: PipelineState) -> dict:
         await repo.add_event(run_id, "analyst", "idea_analyzed", detail)
 
     duration_ms = (time.monotonic() - t0) * 1000
-    await repo.add_event(
-        run_id, "analyst", "stage_completed", str(counts), duration_ms=duration_ms
-    )
+    await repo.add_event(run_id, "analyst", "stage_completed", str(counts), duration_ms=duration_ms)
     return {"shortlisted_ids": shortlisted_ids, "status_counts": counts}
 
 
@@ -115,9 +113,7 @@ async def request_review_node(state: PipelineState) -> dict:
 
 async def human_gate_node(state: PipelineState) -> dict:
     # Nothing but the interrupt: this node re-executes from the top on resume.
-    decisions = interrupt(
-        {"run_id": state["run_id"], "awaiting": len(state.get("shortlisted_ids", []))}
-    )
+    decisions = interrupt({"run_id": state["run_id"], "awaiting": len(state.get("shortlisted_ids", []))})
     return {"decisions": decisions or {}}
 
 

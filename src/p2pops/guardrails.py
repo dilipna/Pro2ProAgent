@@ -108,12 +108,21 @@ def _get_search_rails() -> LLMRails:
     return LLMRails(config=config, llm=LangChainLLMAdapter(model))
 
 
+class GuardrailDecisionError(RuntimeError):
+    """The checker supplied no usable allow/deny decision."""
+
+
 async def _check(rails: LLMRails, text: str) -> bool:
     result = await rails.generate_async(
         messages=[{"role": "user", "content": text}],
         options=GenerationOptions(rails=["input"], output_vars=["allowed"]),
     )
-    return bool(result.output_data.get("allowed", True))
+    data = result.output_data
+    if not isinstance(data, dict) or type(data.get("allowed")) is not bool:
+        raise GuardrailDecisionError(
+            "Guardrail returned no explicit boolean decision; work was not authorized"
+        )
+    return data["allowed"]
 
 
 async def is_idea_allowed(text: str) -> bool:

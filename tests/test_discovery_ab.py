@@ -24,7 +24,9 @@ def _trial(arm, topic, statuses, scores, tokens=1000, ok=True, problem_ids=None)
         "model": "groq/openai/gpt-oss-20b",
         "research_ok": ok,
         "ideas": ideas,
-        "tool_calls": ["find_problems", "search_hacker_news"] if arm == "xploremore" else ["search_hacker_news"],
+        "tool_calls": ["find_problems", "search_hacker_news"]
+        if arm == "xploremore"
+        else ["search_hacker_news"],
         "tokens": {"research": {"input": tokens, "output": 100}},
         "rate_limit_retries": 0,
         "total_s": 60.0,

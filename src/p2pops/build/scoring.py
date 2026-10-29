@@ -21,13 +21,18 @@ MAX_QA_ROUNDS = 2
 
 
 def qa_gate(report: QAReport, round_index: int) -> GateResult:
-    """Mirrors stress_gate's two independent failure conditions: an explicit
-    'blocked' verdict, OR any unresolved critical issue -- either one fails
-    the gate regardless of the other."""
+    """A revision request or any critical/major issue blocks completion.
+
+    Minor polish remains visible without consuming another generation round.
+    A model's optimistic verdict cannot override its own serious findings.
+    """
     reasons = []
-    if report.verdict == "blocked":
-        reasons.append(f"QA verdict: blocked — {report.reasoning}")
-    reasons.extend(f"unresolved critical [{i.component}]: {i.issue}" for i in report.critical_issues)
+    if report.verdict != "approved":
+        reasons.append(f"QA verdict: {report.verdict} — {report.reasoning}")
+    reasons.extend(
+        f"unresolved {i.severity} [{i.component}]: {i.issue}"
+        for i in report.issues if i.severity in {"critical", "major"}
+    )
     return GateResult(gate=f"qa-round-{round_index}", passed=not reasons, reasons=reasons)
 
 
@@ -177,6 +182,14 @@ def ensure_browser_components(components: list[ComponentSpec]) -> list[Component
     if not languages & {"html", "css", "javascript"}:
         return list(components)
     result = list(components)
+    if "css" not in languages:
+        result.append(
+            ComponentSpec(
+                name="Product Styles",
+                responsibility="The product-specific responsive design system, visual hierarchy and interaction states",
+                tech="CSS stylesheet",
+            )
+        )
     if "html" not in languages:
         result.insert(
             0,

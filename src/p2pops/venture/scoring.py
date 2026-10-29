@@ -35,9 +35,7 @@ DIRECTION_WEIGHTS: dict[str, float] = {
 SATURATION_DAMPING = 0.5  # at saturation=100, differentiation contributes 50%
 
 
-def rank_directions(
-    slate: DirectionSlate, landscape: CompetitorLandscape
-) -> list[RankedDirection]:
+def rank_directions(slate: DirectionSlate, landscape: CompetitorLandscape) -> list[RankedDirection]:
     """Ranks directions by weighted composite, highest first. Deterministic."""
     saturation_factor = 1.0 - SATURATION_DAMPING * (landscape.saturation / 100.0)
     ranked = []
@@ -45,9 +43,7 @@ def rank_directions(
         breakdown = {
             "problem_fit": d.problem_fit * DIRECTION_WEIGHTS["problem_fit"],
             "monetization_path": d.monetization_path * DIRECTION_WEIGHTS["monetization_path"],
-            "differentiation": d.differentiation
-            * DIRECTION_WEIGHTS["differentiation"]
-            * saturation_factor,
+            "differentiation": d.differentiation * DIRECTION_WEIGHTS["differentiation"] * saturation_factor,
             "feasibility": d.feasibility * DIRECTION_WEIGHTS["feasibility"],
         }
         ranked.append(
@@ -75,21 +71,15 @@ MIN_DIRECTION_COMPOSITE = 60.0
 MAX_REFINEMENT_ROUNDS = 2
 
 
-def validation_gate(
-    validation: ProblemValidation, demand: DemandAssessment
-) -> GateResult:
+def validation_gate(validation: ProblemValidation, demand: DemandAssessment) -> GateResult:
     """Go/no-go after parallel analysis: is this worth solutioning at all?"""
     reasons = []
     if not validation.is_real:
         reasons.append("validator found no evidence of a real problem")
     if validation.importance < MIN_VALIDATION_IMPORTANCE:
-        reasons.append(
-            f"importance {validation.importance} < {MIN_VALIDATION_IMPORTANCE}"
-        )
+        reasons.append(f"importance {validation.importance} < {MIN_VALIDATION_IMPORTANCE}")
     if validation.confidence < MIN_VALIDATION_CONFIDENCE:
-        reasons.append(
-            f"validation confidence {validation.confidence:.2f} < {MIN_VALIDATION_CONFIDENCE}"
-        )
+        reasons.append(f"validation confidence {validation.confidence:.2f} < {MIN_VALIDATION_CONFIDENCE}")
     if max(demand.urgency, demand.frequency) < MIN_DEMAND_URGENCY_OR_FREQUENCY:
         reasons.append(
             f"neither urgency ({demand.urgency}) nor frequency ({demand.frequency}) "
@@ -105,8 +95,7 @@ def direction_gate(ranking: list[RankedDirection]) -> GateResult:
         reasons.append("architect produced no directions")
     elif ranking[0].composite < MIN_DIRECTION_COMPOSITE:
         reasons.append(
-            f"top composite {ranking[0].composite} < {MIN_DIRECTION_COMPOSITE} — "
-            "no direction clears the bar"
+            f"top composite {ranking[0].composite} < {MIN_DIRECTION_COMPOSITE} — no direction clears the bar"
         )
     return GateResult(gate="direction", passed=not reasons, reasons=reasons)
 
@@ -123,9 +112,5 @@ def stress_gate(report: StressTestReport, round_index: int) -> GateResult:
         reasons.append(f"red team verdict: do_not_proceed — {report.reasoning}")
     critical = report.critical_issues
     if critical:
-        reasons.extend(
-            f"unresolved critical [{i.lens}]: {i.issue}" for i in critical
-        )
-    return GateResult(
-        gate=f"stress-round-{round_index}", passed=not reasons, reasons=reasons
-    )
+        reasons.extend(f"unresolved critical [{i.lens}]: {i.issue}" for i in critical)
+    return GateResult(gate=f"stress-round-{round_index}", passed=not reasons, reasons=reasons)

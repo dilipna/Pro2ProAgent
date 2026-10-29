@@ -1,3 +1,4 @@
+import { backendConnected, browserModeResponse } from "@/lib/backend-mode";
 import { NextRequest } from "next/server";
 import { API_BASE } from "@/lib/api";
 
@@ -6,6 +7,7 @@ import { API_BASE } from "@/lib/api";
  * request and passed through verbatim — the web tier stores no secret.
  */
 export async function GET(request: NextRequest) {
+  if (!backendConnected()) return browserModeResponse();
   const auth = request.headers.get("authorization");
   try {
     const res = await fetch(`${API_BASE}/api/v1/reviews/pending`, {

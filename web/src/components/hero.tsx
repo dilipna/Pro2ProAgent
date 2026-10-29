@@ -61,41 +61,39 @@ export function Hero() {
       <div className="relative mx-auto w-full max-w-6xl px-6 pb-20 pt-40">
         <p className="animate-rise mb-8 flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.18em] text-maroon-300">
           <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-maroon-400" />
-          An autonomous product company
+          Evidence-led product engineering
         </p>
 
         <h1 className="animate-rise max-w-4xl text-balance text-[clamp(2.75rem,7.5vw,5.5rem)] leading-[1.02] tracking-[-0.02em] [animation-delay:90ms]">
-          Problems in.
+          Start with evidence.
           <br />
-          <span className="font-display italic text-maroon-300">Products</span> out.
+          <span className="font-display italic text-maroon-300">Build</span> with judgment.
         </h1>
 
         <p className="animate-rise mt-8 max-w-xl text-pretty text-lg leading-relaxed text-mist-300 [animation-delay:180ms]">
-          ProToPro listens to real pain points across developer communities,
-          validates them with guardrails and analysis, and ships working
-          solutions — a company of AI agents, with a human signing every
-          green light.
+          Inspect problems reported through XploreMore, define a bounded prototype,
+          and keep human decisions and source evidence visible through the build.
         </p>
 
         <div className="animate-rise mt-10 flex flex-wrap items-center gap-4 [animation-delay:270ms]">
           <a
-            href="#showcase"
+            href="/prototypes"
             className="ember-gloss rounded-full px-6 py-3 text-sm font-medium text-mist-50 shadow-ember-sm transition-shadow hover:shadow-ember"
           >
-            Explore the showcase
+            Try a working prototype →
           </a>
           <a
-            href="#method"
+            href="/workspace"
             className="glass rounded-full px-6 py-3 text-sm text-mist-300 transition-colors hover:text-mist-50"
           >
-            How it works
+            Inspect a problem brief
           </a>
         </div>
       </div>
 
       <div className="relative">
         <p className="mx-auto max-w-6xl px-6 pb-2 font-mono text-[10px] uppercase tracking-[0.18em] text-mist-600">
-          Live from discovery
+          Recent ideas · may include recorded examples
         </p>
         <DiscoveryTicker />
       </div>

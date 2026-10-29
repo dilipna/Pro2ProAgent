@@ -89,7 +89,9 @@ class DemandAssessment(BaseModel):
     frequency: int = Field(description="0-100: how often the pain is encountered in normal work")
     willingness_to_pay: int = Field(description="0-100: strength of budget/pricing signals for a fix")
     demand_signals: list[str] = Field(description="Concrete observed signals, each tied to evidence")
-    market_size_reasoning: str = Field(description="Order-of-magnitude reasoning about who pays, not fake TAM math")
+    market_size_reasoning: str = Field(
+        description="Order-of-magnitude reasoning about who pays, not fake TAM math"
+    )
     confidence: float = Field(description="0-1")
 
     _c1 = field_validator("urgency", "frequency", "willingness_to_pay")(_clamp100)
@@ -120,7 +122,9 @@ class SolutionDirection(BaseModel):
 
     name: str = Field(description="Memorable working name for the direction")
     approach: str = Field(description="What gets built and how it attacks the unserved gap")
-    principle: str = Field(description="Which venture principle from the provided library this applies, and why it transfers")
+    principle: str = Field(
+        description="Which venture principle from the provided library this applies, and why it transfers"
+    )
     wedge: str = Field(description="The narrow first use-case that wins before any expansion")
     # Sub-scores consumed by the deterministic ranking model:
     problem_fit: int = Field(description="0-100: how directly this relieves the validated pain")
@@ -185,7 +189,9 @@ class RefinedDirection(BaseModel):
 class ProductVision(BaseModel):
     product_name: str
     one_liner: str = Field(description="A sentence a stranger understands in five seconds")
-    value_proposition: str = Field(description="The outcome delivered, for whom, versus their real alternative")
+    value_proposition: str = Field(
+        description="The outcome delivered, for whom, versus their real alternative"
+    )
     positioning: str = Field(description="Category and against-whom framing")
     differentiation: list[str] = Field(description="2-4 durable edges, each tied to the landscape analysis")
     target_segment: str
@@ -210,6 +216,7 @@ class OpportunityDossier(BaseModel):
 
     idea_id: str
     idea_title: str
+    approved_snapshot: dict | None = None
     status: str  # validated | rejected | parked | complete
     evidence: EvidenceBundle
     validation: ProblemValidation | None = None
@@ -223,6 +230,4 @@ class OpportunityDossier(BaseModel):
     refinements: list[RefinedDirection] = Field(default_factory=list)
     vision: ProductVision | None = None
     gates: list[GateResult] = Field(default_factory=list)
-    created_at: str = Field(
-        default_factory=lambda: datetime.now(UTC).isoformat()
-    )
+    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())

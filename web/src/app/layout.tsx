@@ -20,9 +20,9 @@ const jetbrains = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ProToPro — Problems in. Products out.",
+  title: "ProToPro — evidence into reviewed prototypes",
   description:
-    "ProToPro is an autonomous product company: agents that find real pain points across developer communities, validate them, and ship working solutions — with a human signing every green light.",
+    "Connect XploreMore problem evidence to a bounded specification, human approval, an inspectable build and separate artifact acceptance.",
 };
 
 export default function RootLayout({

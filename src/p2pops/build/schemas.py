@@ -12,6 +12,7 @@ This is the same "code decides, LLM produces" split as venture's
 """
 
 from datetime import UTC, datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -24,6 +25,7 @@ __all__ = [
     "BuildPlan",
     "ComponentSpec",
     "ArchitectureSpec",
+    "ProductDesign",
     "ScaffoldContent",
     "ScaffoldFile",
     "QAIssue",
@@ -80,6 +82,21 @@ class ComponentSpec(BaseModel):
     depends_on: list[str] = Field(default_factory=list, description="Other ComponentSpec.name values")
 
 
+class ProductDesign(BaseModel):
+    """A shared product-specific contract, authored in the existing architect call.
+
+    This describes intended UI behavior; it is not evidence of a rendered result.
+    Flat, bounded fields keep the structured output practical for smaller models.
+    """
+
+    primary_workflow: str = Field(min_length=20, max_length=600, description="User, task, steps and useful result; respect the approved scope")
+    layout: str = Field(min_length=20, max_length=600, description="Named screen regions and their hierarchy; justify a workspace, editor, timeline or other task-shaped layout")
+    visual_direction: str = Field(min_length=20, max_length=500, description="Product-specific character, concrete colors with hex values, type stacks, spacing and density; no generic SaaS template")
+    signature_detail: str = Field(min_length=10, max_length=400, description="One useful, distinctive interaction or visualization already inside approved scope; no decorative metrics")
+    states: list[str] = Field(min_length=3, max_length=6, description="Concrete initial, empty, invalid and completed states; label sample data and offer a clear/reset path")
+    responsive_rules: str = Field(min_length=20, max_length=500, description="How task regions reflow at 390px and 1440px, keyboard focus, readable contrast and touch targets")
+
+
 class ArchitectureSpec(BaseModel):
     """Architect output."""
 
@@ -88,8 +105,14 @@ class ArchitectureSpec(BaseModel):
         description="The exact object shapes the app stores (e.g. localStorage keys and their "
         "JSON shapes), written as a compact sketch the engineers copy from"
     )
-    api_surface: list[str] = Field(default_factory=list, description="Element ids / function contracts, one per line")
+    api_surface: list[str] = Field(
+        default_factory=list, description="Element ids / function contracts, one per line"
+    )
     rationale: str = Field(description="One line: why this shape fits the plan")
+    product_design: ProductDesign | None = Field(
+        default=None,
+        description="Always provide for new browser products. Shared UX and visual contract consumed by all engineers and QA. Null only for legacy/non-browser records.",
+    )
 
 
 # --- Engineer --------------------------------------------------------------------
@@ -98,7 +121,7 @@ class ArchitectureSpec(BaseModel):
 class ScaffoldContent(BaseModel):
     """LLM-facing ONLY. No path/language field -- ever. See module docstring."""
 
-    content: str = Field(description="The full scaffold file contents, with explicit TODOs where stubbed")
+    content: str = Field(description="The complete working file; no TODOs or placeholder behavior")
     key_decisions: list[str] = Field(default_factory=list)
 
 
@@ -117,7 +140,7 @@ class ScaffoldFile(BaseModel):
 
 class QAIssue(BaseModel):
     component: str = Field(description="Must name a real ComponentSpec.name")
-    severity: str = Field(description="'critical' | 'major' | 'minor'")
+    severity: Literal["critical", "major", "minor"]
     issue: str
     fix: str
 
@@ -129,7 +152,7 @@ class QAReport(BaseModel):
     otherwise."""
 
     issues: list[QAIssue] = Field(default_factory=list)
-    verdict: str = Field(description="'approved' | 'needs_revision' | 'blocked'")
+    verdict: Literal["approved", "needs_revision", "blocked"]
     reasoning: str
 
     @property
@@ -146,6 +169,7 @@ class BuildDossier(BaseModel):
 
     opportunity_id: str
     idea_title: str
+    approved_snapshot: dict | None = None
     product_name: str | None = None
     status: str  # scaffolding | complete | needs_revision | failed
     plan: BuildPlan | None = None
@@ -159,5 +183,8 @@ class BuildDossier(BaseModel):
     gates: list[GateResult] = Field(default_factory=list)
     deploy_url: str | None = Field(
         default=None, description="Public URL of the published product; None = built but not published"
+    )
+    verification_scope: str | None = Field(
+        default=None, description="Code-authored description of which checks actually ran; null for historical records"
     )
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())

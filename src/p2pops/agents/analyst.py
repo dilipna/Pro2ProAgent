@@ -47,9 +47,7 @@ async def analyze_idea(idea: DiscoveredIdea) -> AnalyzedIdea:
     with logfire.span("agent.analyst", title=idea.title):
         allowed = await with_retry(lambda: is_idea_allowed(combined_text), agent="analyst.guardrail")
         if not allowed:
-            return AnalyzedIdea(
-                **idea.model_dump(), status="rejected", reasoning="Blocked by guardrails"
-            )
+            return AnalyzedIdea(**idea.model_dump(), status="rejected", reasoning="Blocked by guardrails")
 
         # An idea for an XploreMore problem we already hold is a duplicate by
         # identity, however differently the model worded it this time.

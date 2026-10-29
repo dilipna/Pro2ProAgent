@@ -49,7 +49,9 @@ def validate(schema_name: str, payload: dict) -> None:
 
 def assert_query_matches_contract(request: httpx.Request, path_template: str) -> None:
     declared = {
-        p["name"]: p["schema"] for p in CONTRACT["paths"][path_template]["get"]["parameters"] if p["in"] == "query"
+        p["name"]: p["schema"]
+        for p in CONTRACT["paths"][path_template]["get"]["parameters"]
+        if p["in"] == "query"
     }
     for name, raw in request.url.params.multi_items():
         assert name in declared, f"query parameter {name!r} is not in the contract"
@@ -93,7 +95,13 @@ def detail(pid: int) -> dict:
         **summary(pid, relevance=None),
         "effective_voices": 4.5,
         "member_count": 7,
-        "demand_factors": {"voices": 1.8, "sources": 1.69, "recency": 0.93, "engagement": 1.4, "category": 1.0},
+        "demand_factors": {
+            "voices": 1.8,
+            "sources": 1.69,
+            "recency": 0.93,
+            "engagement": 1.4,
+            "category": 1.0,
+        },
         "scorer_version": "demand-v0",
     }
 
@@ -177,7 +185,15 @@ async def test_find_problems_sends_key_timeout_and_contract_params_then_compacts
     assert result["ranker"] == "rrf+demand-v0"
     first = result["problems"][0]
     assert set(first) == {
-        "id", "statement", "category", "demand", "voices", "sources", "platforms", "last_seen", "evidence",
+        "id",
+        "statement",
+        "category",
+        "demand",
+        "voices",
+        "sources",
+        "platforms",
+        "last_seen",
+        "evidence",
         "relevance",
     }
     assert first["demand"] == 3.14 and first["last_seen"] == "2026-09-12"
@@ -430,12 +446,16 @@ def test_prompt_and_step_budget_follow_the_bound_tools(monkeypatch):
 def _tool_messages() -> list:
     listed = {"ranker": "r", "problems": [xploremore._compact(summary(1)), xploremore._compact(summary(2))]}
     fetched = {**xploremore._compact(detail(1)), "members": 7}
-    fetched["evidence"].append({"url": "https://news.ycombinator.com/item?id=99", "platform": "hn", "excerpt": "x"})
+    fetched["evidence"].append(
+        {"url": "https://news.ycombinator.com/item?id=99", "platform": "hn", "excerpt": "x"}
+    )
     return [
         AIMessage(content="", tool_calls=[{"name": "find_problems", "args": {"topic": "t"}, "id": "a"}]),
         ToolMessage(content=json.dumps(listed), name="find_problems", tool_call_id="a"),
         # The MCP adapter delivers text content blocks instead of a string.
-        ToolMessage(content=[{"type": "text", "text": json.dumps(fetched)}], name="get_problem", tool_call_id="b"),
+        ToolMessage(
+            content=[{"type": "text", "text": json.dumps(fetched)}], name="get_problem", tool_call_id="b"
+        ),
         ToolMessage(content=json.dumps([{"title": "HN story"}]), name="search_hacker_news", tool_call_id="c"),
     ]
 
@@ -445,7 +465,9 @@ def test_observe_tool_messages_reads_both_transports_and_merges_evidence():
     assert set(ledger) == {1, 2} and unavailable == []
     assert "https://news.ycombinator.com/item?id=99" in {e["url"] for e in ledger[1]["evidence"]}
 
-    outage = [ToolMessage(content=json.dumps({"unavailable": "http_503"}), name="find_problems", tool_call_id="z")]
+    outage = [
+        ToolMessage(content=json.dumps({"unavailable": "http_503"}), name="find_problems", tool_call_id="z")
+    ]
     assert xploremore.observe_tool_messages(outage) == ({}, ["http_503"])
 
 
@@ -453,9 +475,16 @@ def test_provenance_is_decided_by_code_not_by_the_model():
     ledger, _ = xploremore.observe_tool_messages(_tool_messages())
     report = ResearchReport(
         ideas=[
-            DiscoveredIdea(title="A", description="d", source_url="https://github.com/acme/agents/issues/11", problem_id=1),
+            DiscoveredIdea(
+                title="A",
+                description="d",
+                source_url="https://github.com/acme/agents/issues/11",
+                problem_id=1,
+            ),
             # No id, but the source is one of problem 2's evidence posts (trailing slash tolerated).
-            DiscoveredIdea(title="B", description="d", source_url="https://github.com/acme/agents/issues/21/"),
+            DiscoveredIdea(
+                title="B", description="d", source_url="https://github.com/acme/agents/issues/21/"
+            ),
             # The model invented an id it never received.
             DiscoveredIdea(title="C", description="d", source_url="https://example.com/x", problem_id=999),
             # A forged provenance in the model output is overwritten.
@@ -508,7 +537,9 @@ async def test_run_research_attaches_provenance(monkeypatch, configured):
 
 
 async def test_mcp_outages_are_mirrored_into_the_local_breaker(monkeypatch, configured):
-    outage = [ToolMessage(content=json.dumps({"unavailable": "http_503"}), name="find_problems", tool_call_id="z")]
+    outage = [
+        ToolMessage(content=json.dumps({"unavailable": "http_503"}), name="find_problems", tool_call_id="z")
+    ]
 
     async def fake_tools():
         return [], "mcp"
@@ -531,7 +562,12 @@ async def test_mcp_outages_are_mirrored_into_the_local_breaker(monkeypatch, conf
 
 def _provenance() -> XploreMoreProvenance:
     return XploreMoreProvenance(
-        problem_id=42, voices=23, sources=5, platforms=["github", "hn"], demand=4.2, evidence_urls=["https://e/1"]
+        problem_id=42,
+        voices=23,
+        sources=5,
+        platforms=["github", "hn"],
+        demand=4.2,
+        evidence_urls=["https://e/1"],
     )
 
 

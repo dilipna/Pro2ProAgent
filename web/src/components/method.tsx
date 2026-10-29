@@ -11,7 +11,7 @@ const STAGES = [
     n: "02",
     name: "Validate",
     agents: ["GUARDRAIL", "ANALYST"],
-    body: "Every candidate passes a guardrail (no spam, no noise, no off-topic drift), a semantic memory check against everything seen before, and a scored analysis of how painful and buildable the problem really is.",
+    body: "Candidate ideas pass a configured input check, semantic deduplication and model scoring. These are provisional filters, not proof of customer demand or comprehensive safety.",
   },
   {
     n: "03",
@@ -23,13 +23,13 @@ const STAGES = [
     n: "04",
     name: "Build",
     agents: ["PM", "ARCHITECT", "ENGINEER", "QA"],
-    body: "An approved problem is handed to the build squad: a PM writes the spec, an architect plans the system, engineers generate it in parallel, and QA sends weak work back.",
+    body: "An approved problem is handed to the build squad: a PM writes the spec, an architect plans the system, files are generated sequentially with sibling-file context, and QA sends weak work back.",
   },
   {
     n: "05",
-    name: "Publish",
+    name: "Review the artifact",
     agents: ["SHOWCASE"],
-    body: "The finished journey — problem, evidence, decisions, and the product itself — is published here, as a complete problem-to-product story.",
+    body: "Bound-snapshot builds preserve the approved input. Inspect the actual files and record functional observations before a separate acceptance decision; approval does not automatically publish.",
   },
 ];
 
@@ -42,7 +42,7 @@ export function Method() {
             Method
           </p>
           <h2 className="mt-4 max-w-2xl text-balance text-4xl leading-tight tracking-[-0.01em] md:text-5xl">
-            A production line for
+            An evidence trail for
             <span className="font-display italic text-maroon-300"> unsolved </span>
             problems
           </h2>

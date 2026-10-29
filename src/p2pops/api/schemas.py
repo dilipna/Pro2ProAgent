@@ -205,10 +205,13 @@ class PendingReviewOut(BaseModel):
     created_at: datetime
     expires_at: datetime
     idea: IdeaOut
+    snapshot: dict | None = None
+    snapshot_sha256: str | None = None
 
 
 class ReviewDecisionIn(BaseModel):
     decision: str = Field(pattern="^(approve|reject)$")
+    snapshot_sha256: str | None = Field(default=None, pattern="^[a-f0-9]{64}$")
 
 
 class ReviewDecisionOut(BaseModel):

@@ -53,12 +53,19 @@ def test_saturation_damps_differentiation():
 
 def test_validation_gate_rejects_unreal_and_weak_problems():
     demand = DemandAssessment(
-        urgency=70, frequency=70, willingness_to_pay=50,
-        demand_signals=[], market_size_reasoning="", confidence=0.8,
+        urgency=70,
+        frequency=70,
+        willingness_to_pay=50,
+        demand_signals=[],
+        market_size_reasoning="",
+        confidence=0.8,
     )
     good = ProblemValidation(
-        is_real=True, recurrence=70, importance=80,
-        evidence_summary="", confidence=0.9,
+        is_real=True,
+        recurrence=70,
+        importance=80,
+        evidence_summary="",
+        confidence=0.9,
     )
     assert scoring.validation_gate(good, demand).passed
 
